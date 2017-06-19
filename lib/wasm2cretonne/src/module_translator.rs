@@ -1,12 +1,12 @@
-use std::path::PathBuf;
-use wasm_reader::{read_wasm_file, parser_loop};
-use wasmparser::{ParserState, SectionCode, ParserInput};
-use sections_parser::{SectionParsingError, parse_function_signatures, parse_import_section,
-                      parse_function_section, Import};
+use wasmparser::{ParserState, SectionCode, ParserInput, Parser};
+use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
+                          parse_function_section, Import};
+use cretonne::ir::Function;
+use code_translator::translate_function_body;
+use cretonne::ir::frontend::ILBuilder;
 
-pub fn parse_module_preamble(path: PathBuf) -> Result<(), String> {
-    let mut data: Vec<u8> = Vec::new();
-    let mut parser = read_wasm_file(path, &mut data).ok().unwrap();
+pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
+    let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
         ParserState::BeginWasm { .. } => {
             println!("====== Module");
@@ -27,7 +27,7 @@ pub fn parse_module_preamble(path: PathBuf) -> Result<(), String> {
         }
     };
     let mut imports: Option<Vec<Import>> = None;
-    let mut functions: Option<Vec<u32>> = None;
+    let mut functions: Option<Vec<usize>> = None;
     let mut next_input = ParserInput::Default;
     loop {
         match *parser.read_with_input(next_input) {
@@ -85,10 +85,33 @@ pub fn parse_module_preamble(path: PathBuf) -> Result<(), String> {
                 next_input = ParserInput::Default;
             }
             ParserState::EndWasm => return Err(String::from("module ended with no code")),
-            _ => return Err(String::from(format!("wrong content in the preamble"))),
+            _ => return Err(String::from("wrong content in the preamble")),
         };
     }
     // At this point we've entered the code section
-    parser_loop(&mut parser);
-    Ok(())
+    // First we check that we have all that is necessary to translate a function.
+    let functions = match functions {
+        None => return Err(String::from("missing a function section")),
+        Some(functions) => functions,
+    };
+
+    let mut function_index: usize = 0;
+    let mut il_functions: Vec<Function> = Vec::new();
+    let mut il_builder = ILBuilder::new();
+    loop {
+        match *parser.read() {
+            ParserState::BeginFunctionBody { .. } => {
+                let signature = signatures[functions[function_index]].clone();
+                println!("-> function");
+                match translate_function_body(&mut parser, signature, &imports, &mut il_builder) {
+                    Ok(il_func) => il_functions.push(il_func),
+                    Err(s) => return Err(s),
+                }
+            }
+            ParserState::EndSection => break,
+            _ => return Err(String::from(format!("wrong content in code section"))),
+        }
+        function_index += 1;
+    }
+    Ok(il_functions)
 }

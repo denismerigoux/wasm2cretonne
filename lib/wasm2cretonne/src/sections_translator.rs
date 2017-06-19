@@ -2,7 +2,6 @@ use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType};
 use wasmparser;
-use translations::type_to_type;
 
 pub enum SectionParsingError {
     WrongSectionContent(),
@@ -19,6 +18,17 @@ pub enum Import {
     Memory(),
     Global(),
 }
+
+fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
+    match *ty {
+        wasmparser::Type::I32 => Ok(cretonne::ir::types::I32),
+        wasmparser::Type::I64 => Ok(cretonne::ir::types::I64),
+        wasmparser::Type::F32 => Ok(cretonne::ir::types::I32),
+        wasmparser::Type::F64 => Ok(cretonne::ir::types::F64),
+        _ => Err(()),
+    }
+}
+
 
 /// Reads the Type Section of the wasm module.
 pub fn parse_function_signatures(parser: &mut Parser)
@@ -92,11 +102,11 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
     Ok(imports)
 }
 
-pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
+pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<usize>, SectionParsingError> {
     let mut funcs = Vec::new();
     loop {
         match *parser.read() {
-            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex),
+            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as usize),
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };
