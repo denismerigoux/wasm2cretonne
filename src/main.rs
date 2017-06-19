@@ -9,7 +9,6 @@ use std::io::prelude::*;
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
     let mut buf: Vec<u8> = Vec::new();
-    println!("Reading: {:?}", path.as_os_str());
     let file = File::open(path)?;
     let mut buf_reader = BufReader::new(file);
     buf_reader.read_to_end(&mut buf)?;
@@ -19,6 +18,7 @@ fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
 
 fn main() {
     let path = PathBuf::from("tests/int_exprs.wast.0.wasm");
+    println!("Reading: {:?}", path.as_os_str());
     let data = match read_wasm_file(path) {
         Ok(data) => data,
         Err(err) => {
@@ -26,11 +26,14 @@ fn main() {
             return;
         }
     };
-    match translate_module(data) {
-        Ok(_) => (),
+    let funcs = match translate_module(data) {
+        Ok(funcs) => funcs,
         Err(string) => {
             println!("{}", string);
             return;
         }
+    };
+    for func in funcs {
+        println!("{}", func.display(None));
     }
 }

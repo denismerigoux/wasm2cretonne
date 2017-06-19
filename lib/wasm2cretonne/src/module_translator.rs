@@ -8,9 +8,7 @@ use cretonne::ir::frontend::ILBuilder;
 pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
-        ParserState::BeginWasm { .. } => {
-            println!("====== Module");
-        }
+        ParserState::BeginWasm { .. } => {}
         _ => panic!("modules should begin properly"),
     }
     match *parser.read() {
@@ -18,10 +16,7 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         _ => return Err(String::from("no function signature in the module")),
     };
     let signatures = match parse_function_signatures(&mut parser) {
-        Ok(signatures) => {
-            println!("== Signatures\n{:?}", signatures);
-            signatures
-        }
+        Ok(signatures) => signatures,
         Err(SectionParsingError::WrongSectionContent()) => {
             return Err(String::from("wrong content in the type section"))
         }
@@ -33,12 +28,7 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         match *parser.read_with_input(next_input) {
             ParserState::BeginSection { code: SectionCode::Import, .. } => {
                 match parse_import_section(&mut parser) {
-                    Ok(imp) => {
-                        imports = {
-                            println!("== Imports\n{:?}", imp);
-                            Some(imp)
-                        }
-                    }
+                    Ok(imp) => imports = Some(imp),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the import section"))
                     }
@@ -47,12 +37,7 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
             }
             ParserState::BeginSection { code: SectionCode::Function, .. } => {
                 match parse_function_section(&mut parser) {
-                    Ok(funcs) => {
-                        functions = {
-                            println!("== Functions' signature index\n{:?}", funcs);
-                            Some(funcs)
-                        }
-                    }
+                    Ok(funcs) => functions = Some(funcs),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the function section"))
                     }
@@ -102,7 +87,6 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         match *parser.read() {
             ParserState::BeginFunctionBody { .. } => {
                 let signature = signatures[functions[function_index]].clone();
-                println!("-> function");
                 match translate_function_body(&mut parser, signature, &imports, &mut il_builder) {
                     Ok(il_func) => il_functions.push(il_func),
                     Err(s) => return Err(s),
