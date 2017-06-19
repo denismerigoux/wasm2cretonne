@@ -1,22 +1,28 @@
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
-use wasmparser::{Parser, ParserState, SectionCode, FuncType};
+use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType};
 use wasmparser;
 use translations::type_to_type;
 
 pub enum SectionParsingError {
-    NonExistentSection(),
     WrongSectionContent(),
 }
 
-/// Reads the Type Section of the wasm module. Expects that the first call to `parser.read()`
-/// returns `ParserState::BeginSection` and will return a parser ready to read the next section.
-pub fn parse_function_signatures<'a>(parser: &'a mut Parser)
-                                     -> Result<Vec<Signature>, SectionParsingError> {
-    match *parser.read() {
-        ParserState::BeginSection { code: SectionCode::Type, .. } => (),
-        _ => return Err(SectionParsingError::NonExistentSection()),
-    };
+#[derive(Debug)]
+pub enum Import {
+    Function {
+        sig: u32,
+        module: String,
+        field: String,
+    },
+    Table(),
+    Memory(),
+    Global(),
+}
+
+/// Reads the Type Section of the wasm module.
+pub fn parse_function_signatures(parser: &mut Parser)
+                                 -> Result<Vec<Signature>, SectionParsingError> {
     let mut signatures: Vec<Signature> = Vec::new();
     loop {
         match *parser.read() {
@@ -53,4 +59,47 @@ pub fn parse_function_signatures<'a>(parser: &'a mut Parser)
         }
     }
     Ok(signatures)
+}
+
+pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionParsingError> {
+    let mut imports = Vec::new();
+    loop {
+        match *parser.read() {
+            ParserState::ImportSectionEntry {
+                module,
+                field,
+                ty: ImportSectionEntryType::Function(sig),
+            } => {
+                imports.push(Import::Function {
+                                 module: String::from_utf8(module.to_vec()).unwrap(),
+                                 field: String::from_utf8(field.to_vec()).unwrap(),
+                                 sig,
+                             })
+            }
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Table(..), .. } => {
+                imports.push(Import::Table())
+            }
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Memory(..), .. } => {
+                imports.push(Import::Memory())
+            }
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Global(..), .. } => {
+                imports.push(Import::Global())
+            }
+            ParserState::EndSection => break,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(imports)
+}
+
+pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
+    let mut funcs = Vec::new();
+    loop {
+        match *parser.read() {
+            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex),
+            ParserState::EndSection => break,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(funcs)
 }
