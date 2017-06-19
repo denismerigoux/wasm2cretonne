@@ -1,0 +1,8 @@
+[package]
+name = "wasm2cretonne-tools"
+version = "0.0.0"
+authors = ["The Cretonne Project Developers"]
+
+[dependencies]
+wasm2cretonne = { path = "lib/wasm2cretonne" }
+wasmparser = { git = "https://github.com/yurydelendik/wasmparser.rs" }

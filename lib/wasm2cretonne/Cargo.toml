@@ -1,0 +1,8 @@
+[package]
+name = "wasm2cretonne"
+version = "0.0.0"
+authors = ["The Cretonne Project Developers"]
+
+[dependencies]
+wasmparser = { git = "https://github.com/yurydelendik/wasmparser.rs" }
+cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
