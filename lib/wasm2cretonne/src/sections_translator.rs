@@ -1,7 +1,9 @@
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
-use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType};
+use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind};
 use wasmparser;
+use std::collections::HashMap;
+use std::str::from_utf8;
 
 pub enum SectionParsingError {
     WrongSectionContent(),
@@ -19,6 +21,7 @@ pub enum Import {
     Global(),
 }
 
+// Helper function translating wasmparser types to Cretonne types when possible.
 fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
     match *ty {
         wasmparser::Type::I32 => Ok(cretonne::ir::types::I32),
@@ -30,7 +33,7 @@ fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
 }
 
 
-/// Reads the Type Section of the wasm module.
+/// Reads the Type Section of the wasm module and returns the corresponding function signatures.
 pub fn parse_function_signatures(parser: &mut Parser)
                                  -> Result<Vec<Signature>, SectionParsingError> {
     let mut signatures: Vec<Signature> = Vec::new();
@@ -71,6 +74,7 @@ pub fn parse_function_signatures(parser: &mut Parser)
     Ok(signatures)
 }
 
+/// Retrieves the imports from the imports section of the binary.
 pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionParsingError> {
     let mut imports = Vec::new();
     loop {
@@ -102,14 +106,35 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
     Ok(imports)
 }
 
-pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<usize>, SectionParsingError> {
+/// Retrieves the correspondances between functions and signatures from the function section
+pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
     let mut funcs = Vec::new();
     loop {
         match *parser.read() {
-            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as usize),
+            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as u32),
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };
     }
     Ok(funcs)
+}
+
+/// Retrieves the names of the functions from the export section
+pub fn parse_export_section(parser: &mut Parser)
+                            -> Result<HashMap<u32, String>, SectionParsingError> {
+    let mut exports: HashMap<u32, String> = HashMap::new();
+    loop {
+        match *parser.read() {
+            ParserState::ExportSectionEntry {
+                field,
+                kind: ExternalKind::Function,
+                index,
+            } => {
+                exports.insert(index, String::from(from_utf8(field).unwrap()));
+            }
+            ParserState::EndSection => break,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(exports)
 }

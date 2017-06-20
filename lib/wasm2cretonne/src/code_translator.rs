@@ -1,13 +1,15 @@
-use cretonne::ir::{Function, Signature, Value, Type, InstBuilder};
+use cretonne::ir::{Function, Signature, Value, Type, InstBuilder, FunctionName};
 use cretonne::ir::types::*;
+use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::IntCC;
 use cretonne::entity_map::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator};
 use sections_translator::Import;
+use std::collections::HashMap;
 use std::u32;
 
-// An opaque reference to variable.
+// An opaque reference to local variable in wasm.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Local(u32);
 impl EntityRef for Local {
@@ -26,9 +28,12 @@ impl Default for Local {
     }
 }
 
+/// Returns a well-formed Cretonne IL function from a wasm function body and a signature.
 pub fn translate_function_body(parser: &mut Parser,
+                               function_index: u32,
                                sig: Signature,
                                imports: &Option<Vec<Import>>,
+                               exports: &Option<HashMap<u32, String>>,
                                il_builder: &mut ILBuilder<Local>)
                                -> Result<Function, String> {
     let mut func = Function::new();
@@ -38,6 +43,18 @@ pub fn translate_function_body(parser: &mut Parser,
         .map(|arg| arg.value_type)
         .collect();
     func.signature = sig;
+    match exports {
+        &None => (),
+        &Some(ref exports) => {
+            match exports.get(&function_index) {
+                None => (),
+                Some(name) => {
+                    println!("Name: {}", name);
+                    func.name = FunctionName::new(name.clone().as_str())
+                }
+            }
+        }
+    }
     let mut value_stack: Vec<Value> = Vec::new();
     {
         let mut builder = FunctionBuilder::new(&mut func, il_builder);
@@ -62,9 +79,14 @@ pub fn translate_function_body(parser: &mut Parser,
             builder.ins().return_(value_stack.as_slice());
         }
     }
-    Ok(func)
+    // TODO: remove the verification in production
+    match verify_function(&func, None) {
+        Ok(()) => Ok(func),
+        Err(err) => Err(err.message),
+    }
 }
 
+/// Translates wasm operators into Cretonne IL instructions.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
                       imports: &Option<Vec<Import>>,
@@ -81,13 +103,13 @@ fn translate_operator(op: &Operator,
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
             let val = builder.ins().icmp(IntCC::SignedLessThan, arg1, arg2);
-            stack.push(builder.ins().sextend(I32, val));
+            stack.push(builder.ins().bint(I32, val));
         }
         Operator::I32LtU => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
             let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
-            stack.push(builder.ins().uextend(I32, val));
+            stack.push(builder.ins().bint(I32, val));
         }
         Operator::I64Const { value } => stack.push(builder.ins().iconst(I64, value)),
         Operator::I64Add => {
@@ -99,13 +121,13 @@ fn translate_operator(op: &Operator,
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
             let val = builder.ins().icmp(IntCC::SignedLessThan, arg1, arg2);
-            stack.push(builder.ins().sextend(I32, val));
+            stack.push(builder.ins().bint(I32, val));
         }
         Operator::I64LtU => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
             let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
-            stack.push(builder.ins().uextend(I32, val));
+            stack.push(builder.ins().bint(I32, val));
         }
         _ => unimplemented!(),
     }

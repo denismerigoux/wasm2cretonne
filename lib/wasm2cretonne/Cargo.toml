@@ -2,6 +2,7 @@
 name = "wasm2cretonne"
 version = "0.0.0"
 authors = ["The Cretonne Project Developers"]
+publish = false
 
 [dependencies]
 wasmparser = { git = "https://github.com/yurydelendik/wasmparser.rs" }

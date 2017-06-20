@@ -1,9 +1,10 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
-                          parse_function_section, Import};
+                          parse_function_section, parse_export_section, Import};
 use cretonne::ir::Function;
 use code_translator::translate_function_body;
 use cretonne::ir::frontend::ILBuilder;
+use std::collections::HashMap;
 
 pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
     let mut parser = Parser::new(data.as_slice());
@@ -22,7 +23,8 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         }
     };
     let mut imports: Option<Vec<Import>> = None;
-    let mut functions: Option<Vec<usize>> = None;
+    let mut functions: Option<Vec<u32>> = None;
+    let mut exports: Option<HashMap<u32, String>> = None;
     let mut next_input = ParserInput::Default;
     loop {
         match *parser.read_with_input(next_input) {
@@ -54,7 +56,13 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
                 next_input = ParserInput::SkipSection;
             }
             ParserState::BeginSection { code: SectionCode::Export, .. } => {
-                next_input = ParserInput::SkipSection;
+                match parse_export_section(&mut parser) {
+                    Ok(exps) => exports = Some(exps),
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the function section"))
+                    }
+                }
+                next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Start, .. } => {
                 next_input = ParserInput::SkipSection;
@@ -80,14 +88,19 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         Some(functions) => functions,
     };
 
-    let mut function_index: usize = 0;
+    let mut function_index: u32 = 0;
     let mut il_functions: Vec<Function> = Vec::new();
     let mut il_builder = ILBuilder::new();
     loop {
         match *parser.read() {
             ParserState::BeginFunctionBody { .. } => {
-                let signature = signatures[functions[function_index]].clone();
-                match translate_function_body(&mut parser, signature, &imports, &mut il_builder) {
+                let signature = signatures[functions[function_index as usize] as usize].clone();
+                match translate_function_body(&mut parser,
+                                              function_index,
+                                              signature,
+                                              &imports,
+                                              &exports,
+                                              &mut il_builder) {
                     Ok(il_func) => il_functions.push(il_func),
                     Err(s) => return Err(s),
                 }
