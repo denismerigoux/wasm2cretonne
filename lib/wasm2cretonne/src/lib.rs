@@ -3,6 +3,7 @@ extern crate cretonne;
 
 pub mod module_translator;
 
+mod translation_utils;
 mod code_translator;
 mod sections_translator;
 

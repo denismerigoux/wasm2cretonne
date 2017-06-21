@@ -17,7 +17,7 @@ fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
 
 
 fn main() {
-    let path = PathBuf::from("tests/int_exprs.wast.0.wasm");
+    let path = PathBuf::from("tests/if.wast.0.wasm");
     println!("Reading: {:?}", path.as_os_str());
     let data = match read_wasm_file(path) {
         Ok(data) => data,
