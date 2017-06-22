@@ -33,7 +33,7 @@ fn main() {
             return;
         }
     };
-    for func in funcs {
-        println!("{}", func.display(None));
-    }
+    // for func in funcs {
+    //     println!("{}", func.display(None));
+    // }
 }
