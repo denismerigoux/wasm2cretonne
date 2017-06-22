@@ -154,7 +154,6 @@ pub fn translate_function_body(parser: &mut Parser,
                             }
                             _ => {
                                 // We don't translate because the code is unreachable
-                                println!("Not translating {:?}", op)
                             }
                         }
                     } else {
@@ -171,8 +170,7 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
         if !state.last_inst_return {
-            println!("Stack: {:?}", stack);
-            //builder.ins().return_(stack.as_slice());
+            builder.ins().return_(stack.as_slice());
         }
     }
     // TODO: remove the verification in production
@@ -195,11 +193,10 @@ fn translate_operator(op: &Operator,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState) {
-    println!("Translating {:?}", op);
     state.last_inst_return = false;
     match *op {
         Operator::GetLocal { local_index } => stack.push(builder.use_var(Local(local_index))),
-        Operator::SetLocal {local_index} => {
+        Operator::SetLocal { local_index } => {
             let val = stack.pop().unwrap();
             builder.def_var(Local(local_index), val);
         }
@@ -228,7 +225,7 @@ fn translate_operator(op: &Operator,
         Operator::I32Sub => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            stack.push(builder.ins().isub(arg1, arg2));
+            stack.push(builder.ins().isub(arg2, arg1));
         }
         Operator::I64Sub => {
             let arg1 = stack.pop().unwrap();
@@ -310,66 +307,66 @@ fn translate_operator(op: &Operator,
         Operator::F32Gt => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThan,arg1,arg2);
+            let val = builder.ins().fcmp(FloatCC::GreaterThan, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
         Operator::F64Gt => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThan,arg1,arg2);
+            let val = builder.ins().fcmp(FloatCC::GreaterThan, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
         Operator::F32Ge => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual,arg1,arg2);
+            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
         Operator::F64Ge => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual,arg1,arg2);
+            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
         Operator::Drop => {
             stack.pop();
         }
-        Operator::F32Const{ value} => {
+        Operator::F32Const { value } => {
             stack.push(builder.ins().f32const(f32_translation(value)));
         }
-        Operator::F64Const{ value} => {
+        Operator::F64Const { value } => {
             stack.push(builder.ins().f64const(f64_translation(value)));
         }
         Operator::F64ConvertUI64 => {
             let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_uint(F64,val));
+            stack.push(builder.ins().fcvt_from_uint(F64, val));
         }
         Operator::F64ConvertUI32 => {
             let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_uint(F64,val));
+            stack.push(builder.ins().fcvt_from_uint(F64, val));
         }
         Operator::F64ConvertSI64 => {
             let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_sint(F64,val));
+            stack.push(builder.ins().fcvt_from_sint(F64, val));
         }
         Operator::F64PromoteF32 => {
             let val = stack.pop().unwrap();
-            stack.push(builder.ins().fpromote(F64,val));
+            stack.push(builder.ins().fpromote(F64, val));
         }
         Operator::F64ConvertSI32 => {
             let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_sint(F64,val));
+            stack.push(builder.ins().fcvt_from_sint(F64, val));
         }
         Operator::I32Ctz => {
             let val = stack.pop().unwrap();
             let short_res = builder.ins().ctz(val);
-            stack.push(builder.ins().sextend(I32,short_res));
+            stack.push(builder.ins().sextend(I32, short_res));
 
         }
         Operator::I64Ctz => {
             let val = stack.pop().unwrap();
             let short_res = builder.ins().ctz(val);
-            stack.push(builder.ins().sextend(I32,short_res));
+            stack.push(builder.ins().sextend(I32, short_res));
         }
         Operator::Return => {
             builder.ins().return_(stack.as_slice());
@@ -378,33 +375,33 @@ fn translate_operator(op: &Operator,
         }
         Operator::Block { ty } => {
             let next = builder.create_ebb();
-            control_stack.push(ControlStackFrame::Block{
-                destination: next,
-                return_values_count: return_values_count(ty),
-            });
+            control_stack.push(ControlStackFrame::Block {
+                                   destination: next,
+                                   return_values_count: return_values_count(ty),
+                               });
         }
-        Operator::If{ ty } => {
+        Operator::If { ty } => {
             let val = stack.pop().unwrap();
             let if_not = builder.create_ebb();
             let jump_inst = builder.ins().brz(val, if_not, &[]);
-            control_stack.push(ControlStackFrame::If{
-                destination: if_not,
-                branch_inst: jump_inst,
-                return_values_count: return_values_count(ty),
-            });
+            control_stack.push(ControlStackFrame::If {
+                                   destination: if_not,
+                                   branch_inst: jump_inst,
+                                   return_values_count: return_values_count(ty),
+                               });
         }
         Operator::Else => {
             // We take the control frame pushed by the if, use its ebb as the else body
             // and push a new control frame with a new ebb for the code after the if/then/else
-            let (destination, return_values_count, branch_inst) =
-                match &control_stack[control_stack.len() - 1] {
-                    &ControlStackFrame::If {
-                        destination,
-                        return_values_count,
-                        branch_inst,
-                    } => (destination, return_values_count, branch_inst),
-                    _ => panic!("should not happen"),
-                };
+            let (destination, return_values_count, branch_inst) = match &control_stack[control_stack.len() -
+                                                                         1] {
+                &ControlStackFrame::If {
+                    destination,
+                    return_values_count,
+                    branch_inst,
+                } => (destination, return_values_count, branch_inst),
+                _ => panic!("should not happen"),
+            };
             // At the end of the then clause we jump to the destination
             if state.unreachable {
                 state.unreachable = false;
@@ -420,16 +417,22 @@ fn translate_operator(op: &Operator,
             builder.switch_to_block(else_ebb);
         }
         Operator::End => {
-            let (destination,return_values_count) = match control_stack.pop().unwrap() {
-                    ControlStackFrame::If {destination, return_values_count, ..} =>
-                (destination, return_values_count),
-                    ControlStackFrame::Block {destination, return_values_count, ..} =>
-                    (destination, return_values_count),
+            let (destination, return_values_count) = match control_stack.pop().unwrap() {
+                ControlStackFrame::If {
+                    destination,
+                    return_values_count,
+                    ..
+                } => (destination, return_values_count),
+                ControlStackFrame::Block {
+                    destination,
+                    return_values_count,
+                    ..
+                } => (destination, return_values_count),
             };
             if state.unreachable {
                 state.unreachable = false;
             } else {
-                let cut_index = stack.len()-return_values_count;
+                let cut_index = stack.len() - return_values_count;
                 let jump_args = stack.split_off(cut_index);
                 builder.ins().jump(destination, jump_args.as_slice());
             }
@@ -438,19 +441,19 @@ fn translate_operator(op: &Operator,
             stack.extend_from_slice(builder.ebb_args(destination));
         }
         Operator::Br { relative_depth } => {
-            let (destination, return_values_count) = match control_stack[control_stack.len() - 1 -
-                  (relative_depth as usize)] {
-                ControlStackFrame::If {
-                    destination,
-                    return_values_count,
-                    ..
-                } => (destination, return_values_count),
-                ControlStackFrame::Block {
-                    destination,
-                    return_values_count,
-                    ..
-                } => (destination, return_values_count),
-            };
+            let (destination, return_values_count) =
+                match control_stack[control_stack.len() - 1 - (relative_depth as usize)] {
+                    ControlStackFrame::If {
+                        destination,
+                        return_values_count,
+                        ..
+                    } => (destination, return_values_count),
+                    ControlStackFrame::Block {
+                        destination,
+                        return_values_count,
+                        ..
+                    } => (destination, return_values_count),
+                };
             let cut_index = stack.len() - return_values_count;
             let jump_args = stack.split_off(cut_index);
             builder.ins().jump(destination, jump_args.as_slice());
@@ -459,33 +462,56 @@ fn translate_operator(op: &Operator,
         }
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
-            let (destination, return_values_count) = match control_stack[control_stack.len() - 1 -
-                  (relative_depth as usize)] {
-                ControlStackFrame::If {
-                    destination,
-                    return_values_count,
-                    ..
-                } => (destination, return_values_count),
-                ControlStackFrame::Block {
-                    destination,
-                    return_values_count,
-                    ..
-                } => (destination, return_values_count),
-            };
+            let (destination, return_values_count) =
+                match control_stack[control_stack.len() - 1 - (relative_depth as usize)] {
+                    ControlStackFrame::If {
+                        destination,
+                        return_values_count,
+                        ..
+                    } => (destination, return_values_count),
+                    ControlStackFrame::Block {
+                        destination,
+                        return_values_count,
+                        ..
+                    } => (destination, return_values_count),
+                };
             let cut_index = stack.len() - return_values_count;
             let jump_args = stack.split_off(cut_index);
             builder.ins().brnz(val, destination, jump_args.as_slice());
+        }
+        Operator::BrTable { ref table } => {
+            // TODO: deal with jump arguments by splitting edges
+            let (depths, default) = table.read_table();
+            let jt = builder.create_jump_table();
+            for (index, depth) in depths.iter().enumerate() {
+                let ebb = match control_stack[control_stack.len() - 1 - (*depth as usize)] {
+                    ControlStackFrame::If { destination, .. } => destination,
+                    ControlStackFrame::Block { destination, .. } => destination,
+                };
+                builder.insert_jump_table_entry(jt, index, ebb);
+            }
+            let val = stack.pop().unwrap();
+            builder.ins().br_table(val, jt);
+            let ebb = match control_stack[control_stack.len() - 1 - (default as usize)] {
+                ControlStackFrame::If { destination, .. } => destination,
+                ControlStackFrame::Block { destination, .. } => destination,
+            };
+            builder.ins().jump(ebb, &[]);
+            state.unreachable = true;
         }
         Operator::Nop => {
             // We do nothing
         }
         Operator::Unreachable => {
             builder.ins().trap();
+            state.unreachable = true;
         }
         Operator::Call { function_index } => {
             // TODO: return values?
-            builder.ins().call(FuncRef::new(function_index as usize),&[]);
+            builder
+                .ins()
+                .call(FuncRef::new(function_index as usize), &[]);
         }
-        _ => println!("Not translated: {:?}",op)/*unimplemented!()*/,
+        _ => unimplemented!(),
     }
 }
