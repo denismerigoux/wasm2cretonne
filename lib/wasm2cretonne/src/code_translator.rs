@@ -47,6 +47,21 @@ struct TranslationState {
     unreachable: bool,
 }
 
+struct FunctionImports {
+    /// Mappings index in function index space -> index in function local imports
+    functions: HashMap<usize, FuncRef>,
+    signatures: HashMap<usize, SigRef>,
+}
+
+impl FunctionImports {
+    fn new() -> FunctionImports {
+        FunctionImports {
+            functions: HashMap::new(),
+            signatures: HashMap::new(),
+        }
+    }
+}
+
 /// Returns a well-formed Cretonne IL function from a wasm function body and a signature.
 pub fn translate_function_body(parser: &mut Parser,
                                function_index: u32,
@@ -73,26 +88,7 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
     }
-    // Declare external functions references
-    for signature in signatures {
-        func.dfg.signatures.push(signature.clone());
-    }
-    for (func_index, sig_index) in functions.iter().enumerate() {
-        func.dfg
-            .ext_funcs
-            .push(ExtFuncData {
-                      name: match exports {
-                          &None => FunctionName::new(""),
-                          &Some(ref exports) => {
-                              match exports.get(&(func_index as u32)) {
-                                  None => FunctionName::new(""),
-                                  Some(name) => FunctionName::new(name.clone()),
-                              }
-                          }
-                      },
-                      signature: SigRef::new(*sig_index as usize),
-                  });
-    }
+    let mut func_imports = FunctionImports::new();
     let mut stack: Vec<Value> = Vec::new();
     let mut control_stack: Vec<ControlStackFrame> = Vec::new();
     {
@@ -141,7 +137,9 @@ pub fn translate_function_body(parser: &mut Parser,
                                                    &mut control_stack,
                                                    &mut state,
                                                    &functions,
-                                                   &signatures)
+                                                   &signatures,
+                                                   &exports,
+                                                   &mut func_imports)
                             }
                             Operator::Else => {
                                 translate_operator(op,
@@ -150,7 +148,9 @@ pub fn translate_function_body(parser: &mut Parser,
                                                    &mut control_stack,
                                                    &mut state,
                                                    &functions,
-                                                   &signatures)
+                                                   &signatures,
+                                                   &exports,
+                                                   &mut func_imports)
                             }
                             _ => {
                                 // We don't translate because the code is unreachable
@@ -163,7 +163,9 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &mut control_stack,
                                            &mut state,
                                            &functions,
-                                           &signatures)
+                                           &signatures,
+                                           &exports,
+                                           &mut func_imports)
                     }
                 }
                 ParserState::EndFunctionBody => break,
@@ -194,7 +196,9 @@ fn translate_operator(op: &Operator,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
                       functions: &Vec<u32>,
-                      signatures: &Vec<Signature>) {
+                      signatures: &Vec<Signature>,
+                      exports: &Option<HashMap<u32, String>>,
+                      func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
         Operator::GetLocal { local_index } => stack.push(builder.use_var(Local(local_index))),
@@ -512,9 +516,15 @@ fn translate_operator(op: &Operator,
             let args_num = args_count(function_index as usize, functions, signatures);
             let cut_index = stack.len() - args_num;
             let call_args = stack.split_off(cut_index);
+            let internal_function_index = find_import(function_index as usize,
+                                                      builder,
+                                                      func_imports,
+                                                      functions,
+                                                      exports,
+                                                      signatures);
             let call_inst = builder
                 .ins()
-                .call(FuncRef::new(function_index as usize), call_args.as_slice());
+                .call(internal_function_index, call_args.as_slice());
             let ret_values = builder.inst_results(call_inst);
             for val in ret_values {
                 stack.push(*val);
@@ -526,4 +536,63 @@ fn translate_operator(op: &Operator,
 
 fn args_count(index: usize, functions: &Vec<u32>, signatures: &Vec<Signature>) -> usize {
     signatures[functions[index] as usize].argument_types.len()
+}
+
+// Given a index in the function index space, search for it in the function imports and if it is
+// not there add it to the function imports.
+fn find_import(index: usize,
+               builder: &mut FunctionBuilder<Local>,
+               func_imports: &mut FunctionImports,
+               functions: &Vec<u32>,
+               exports: &Option<HashMap<u32, String>>,
+               signatures: &Vec<Signature>)
+               -> FuncRef {
+    match func_imports.functions.get(&index) {
+        Some(local_index) => return *local_index,
+        None => {}
+    }
+    // We have to import the function
+    let sig_index = functions[index];
+    match func_imports.signatures.get(&(sig_index as usize)) {
+        Some(local_sig_index) => {
+            let local_func_index =
+                builder.import_function(ExtFuncData {
+                                            name: match exports {
+                                                &None => FunctionName::new(""),
+                                                &Some(ref exports) => {
+                                                    match exports.get(&(index as u32)) {
+                                                        None => FunctionName::new(""),
+                                                        Some(name) => {
+                                                            FunctionName::new(name.clone())
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            signature: *local_sig_index,
+                                        });
+            func_imports.functions.insert(index, local_func_index);
+            return local_func_index;
+        }
+        None => {}
+    };
+    // We have to import the signature
+    let sig_local_index = builder.import_signature(signatures[sig_index as usize].clone());
+    func_imports
+        .signatures
+        .insert(sig_index as usize, sig_local_index);
+    let local_func_index =
+        builder.import_function(ExtFuncData {
+                                    name: match exports {
+                                        &None => FunctionName::new(""),
+                                        &Some(ref exports) => {
+                                            match exports.get(&(index as u32)) {
+                                                None => FunctionName::new(""),
+                                                Some(name) => FunctionName::new(name.clone()),
+                                            }
+                                        }
+                                    },
+                                    signature: sig_local_index,
+                                });
+    func_imports.functions.insert(index, local_func_index);
+    local_func_index
 }
