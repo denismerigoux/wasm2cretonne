@@ -26,7 +26,7 @@ fn main() {
             return;
         }
     };
-    let funcs = match translate_module(data) {
+    let _ = match translate_module(data) {
         Ok(funcs) => funcs,
         Err(string) => {
             println!("{}", string);

@@ -7,7 +7,6 @@ use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator};
-use sections_translator::Import;
 use translation_utils::{f32_translation, f64_translation, return_values_count};
 use std::collections::HashMap;
 use std::u32;
@@ -53,7 +52,6 @@ pub fn translate_function_body(parser: &mut Parser,
                                function_index: u32,
                                sig: Signature,
                                locals: &Vec<(u32, Type)>,
-                               imports: &Option<Vec<Import>>,
                                exports: &Option<HashMap<u32, String>>,
                                signatures: &Vec<Signature>,
                                functions: &Vec<u32>,
@@ -139,18 +137,20 @@ pub fn translate_function_body(parser: &mut Parser,
                             Operator::End => {
                                 translate_operator(op,
                                                    &mut builder,
-                                                   imports,
                                                    &mut stack,
                                                    &mut control_stack,
-                                                   &mut state)
+                                                   &mut state,
+                                                   &functions,
+                                                   &signatures)
                             }
                             Operator::Else => {
                                 translate_operator(op,
                                                    &mut builder,
-                                                   imports,
                                                    &mut stack,
                                                    &mut control_stack,
-                                                   &mut state)
+                                                   &mut state,
+                                                   &functions,
+                                                   &signatures)
                             }
                             _ => {
                                 // We don't translate because the code is unreachable
@@ -159,10 +159,11 @@ pub fn translate_function_body(parser: &mut Parser,
                     } else {
                         translate_operator(op,
                                            &mut builder,
-                                           imports,
                                            &mut stack,
                                            &mut control_stack,
-                                           &mut state)
+                                           &mut state,
+                                           &functions,
+                                           &signatures)
                     }
                 }
                 ParserState::EndFunctionBody => break,
@@ -189,10 +190,11 @@ pub fn translate_function_body(parser: &mut Parser,
 /// a return.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
-                      _: &Option<Vec<Import>>,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
-                      state: &mut TranslationState) {
+                      state: &mut TranslationState,
+                      functions: &Vec<u32>,
+                      signatures: &Vec<Signature>) {
     state.last_inst_return = false;
     match *op {
         Operator::GetLocal { local_index } => stack.push(builder.use_var(Local(local_index))),
@@ -225,7 +227,7 @@ fn translate_operator(op: &Operator,
         Operator::I32Sub => {
             let arg1 = stack.pop().unwrap();
             let arg2 = stack.pop().unwrap();
-            stack.push(builder.ins().isub(arg2, arg1));
+            stack.push(builder.ins().isub(arg1, arg2));
         }
         Operator::I64Sub => {
             let arg1 = stack.pop().unwrap();
@@ -507,11 +509,21 @@ fn translate_operator(op: &Operator,
             state.unreachable = true;
         }
         Operator::Call { function_index } => {
-            // TODO: return values?
-            builder
+            let args_num = args_count(function_index as usize, functions, signatures);
+            let cut_index = stack.len() - args_num;
+            let call_args = stack.split_off(cut_index);
+            let call_inst = builder
                 .ins()
-                .call(FuncRef::new(function_index as usize), &[]);
+                .call(FuncRef::new(function_index as usize), call_args.as_slice());
+            let ret_values = builder.inst_results(call_inst);
+            for val in ret_values {
+                stack.push(*val);
+            }
         }
         _ => unimplemented!(),
     }
+}
+
+fn args_count(index: usize, functions: &Vec<u32>, signatures: &Vec<Signature>) -> usize {
+    signatures[functions[index] as usize].argument_types.len()
 }

@@ -10,18 +10,6 @@ pub enum SectionParsingError {
     WrongSectionContent(),
 }
 
-#[derive(Debug)]
-pub enum Import {
-    Function {
-        sig: u32,
-        module: String,
-        field: String,
-    },
-    Table(),
-    Memory(),
-    Global(),
-}
-
 /// Reads the Type Section of the wasm module and returns the corresponding function signatures.
 pub fn parse_function_signatures(parser: &mut Parser)
                                  -> Result<Vec<Signature>, SectionParsingError> {
@@ -66,30 +54,16 @@ pub fn parse_function_signatures(parser: &mut Parser)
 }
 
 /// Retrieves the imports from the imports section of the binary.
-pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionParsingError> {
+pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
     let mut imports = Vec::new();
     loop {
         match *parser.read() {
             ParserState::ImportSectionEntry {
-                module,
-                field,
-                ty: ImportSectionEntryType::Function(sig),
-            } => {
-                imports.push(Import::Function {
-                                 module: String::from_utf8(module.to_vec()).unwrap(),
-                                 field: String::from_utf8(field.to_vec()).unwrap(),
-                                 sig,
-                             })
-            }
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Table(..), .. } => {
-                imports.push(Import::Table())
-            }
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Memory(..), .. } => {
-                imports.push(Import::Memory())
-            }
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Global(..), .. } => {
-                imports.push(Import::Global())
-            }
+                ty: ImportSectionEntryType::Function(sig), ..
+            } => imports.push(sig),
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Table(..), .. } => {}
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Memory(..), .. } => {}
+            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Global(..), .. } => {}
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };

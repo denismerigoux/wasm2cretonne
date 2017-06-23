@@ -1,6 +1,6 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
-                          parse_function_section, parse_export_section, Import};
+                          parse_function_section, parse_export_section};
 use translation_utils::type_to_type;
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
@@ -23,7 +23,6 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
             return Err(String::from("wrong content in the type section"))
         }
     };
-    let mut imports: Option<Vec<Import>> = None;
     let mut functions: Option<Vec<u32>> = None;
     let mut exports: Option<HashMap<u32, String>> = None;
     let mut next_input = ParserInput::Default;
@@ -31,7 +30,7 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
         match *parser.read_with_input(next_input) {
             ParserState::BeginSection { code: SectionCode::Import, .. } => {
                 match parse_import_section(&mut parser) {
-                    Ok(imp) => imports = Some(imp),
+                    Ok(imp) => functions = Some(imp),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the import section"))
                     }
@@ -40,7 +39,12 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
             }
             ParserState::BeginSection { code: SectionCode::Function, .. } => {
                 match parse_function_section(&mut parser) {
-                    Ok(funcs) => functions = Some(funcs),
+                    Ok(funcs) => {
+                        match functions {
+                            None => functions = Some(funcs),
+                            Some(ref mut imps) => imps.extend(funcs),
+                        }
+                    }
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the function section"))
                     }
@@ -114,7 +118,6 @@ pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
                                       function_index,
                                       signature,
                                       &locals,
-                                      &imports,
                                       &exports,
                                       &signatures,
                                       &functions,
