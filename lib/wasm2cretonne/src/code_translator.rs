@@ -30,6 +30,7 @@ impl Default for Local {
     }
 }
 
+#[derive(Debug)]
 enum ControlStackFrame {
     If {
         destination: Ebb,
@@ -73,7 +74,8 @@ impl ControlStackFrame {
 
 struct TranslationState {
     last_inst_return: bool,
-    unreachable_depth: usize,
+    phantom_unreachable_stack_depth: usize,
+    real_unreachable_stack_depth: usize,
 }
 
 struct FunctionImports {
@@ -150,36 +152,72 @@ pub fn translate_function_body(parser: &mut Parser,
         }
         let mut state = TranslationState {
             last_inst_return: false,
-            unreachable_depth: 0,
+            phantom_unreachable_stack_depth: 0,
+            real_unreachable_stack_depth: 0,
         };
         loop {
             let parser_state = parser.read();
 
             match *parser_state {
                 ParserState::CodeOperator(ref op) => {
-                    if state.unreachable_depth > 0 {
+                    if state.phantom_unreachable_stack_depth +
+                       state.real_unreachable_stack_depth > 0 {
+                        println!("Unreachable ({},{}): {:?}",
+                                 state.real_unreachable_stack_depth,
+                                 state.phantom_unreachable_stack_depth,
+                                 op);
+                        // We don't translate because the code is unreachable
+                        // Nevertheless we have to record a phantom stack for this code
+                        // to know when the unreachable code ends
                         match *op {
                             Operator::If { ty: _ } |
                             Operator::Loop { ty: _ } |
                             Operator::Block { ty: _ } => {
-                                state.unreachable_depth += 1;
+                                state.phantom_unreachable_stack_depth += 1;
                             }
-                            Operator::End | Operator::Else => {
-                                translate_operator(op,
-                                                   &mut builder,
-                                                   &mut stack,
-                                                   &mut control_stack,
-                                                   &mut state,
-                                                   &functions,
-                                                   &signatures,
-                                                   &exports,
-                                                   &mut func_imports)
+                            Operator::End => {
+                                if state.phantom_unreachable_stack_depth > 0 {
+                                    state.phantom_unreachable_stack_depth -= 1;
+                                } else {
+                                    // This End corresponds to a real control stack frame
+                                    // We switch to the destination block but we don't insert
+                                    // a jump instruction since the code is still unreachable
+                                    let frame = control_stack.pop().unwrap();
+                                    if state.real_unreachable_stack_depth == 1 {
+                                        // The code in this block will be reachable so we have to switch to it
+                                        builder.switch_to_block(frame.following_code());
+                                        builder.seal_block(frame.following_code());
+                                        stack.extend_from_slice(builder.ebb_args(frame.following_code()));
+                                    }
+                                    state.real_unreachable_stack_depth -= 1;
+                                }
+                            }
+                            Operator::Else => {
+                                if state.phantom_unreachable_stack_depth > 0 {
+                                    // This is part of a phantom if-then-else, we do nothing
+                                } else {
+                                    // Encountering an real else means that the code in the else
+                                    // clause is reachable again
+                                    let branch_inst = match &control_stack[control_stack.len() -
+                                                             1] {
+                                        &ControlStackFrame::If { branch_inst, .. } => branch_inst,
+                                        _ => panic!("should not happen"),
+                                    };
+                                    // We change the target of the branch instruction
+                                    let else_ebb = builder.create_ebb();
+                                    builder.change_jump_destination(branch_inst, else_ebb);
+                                    builder.seal_block(else_ebb);
+                                    builder.switch_to_block(else_ebb);
+                                    state.real_unreachable_stack_depth = 0;
+                                }
                             }
                             _ => {
-                                // We don't translate because the code is unreachable
+                                // We don't translate because this is unreachable code
                             }
                         }
                     } else {
+                        // Now that we have dealt with unreachable code we proceed to
+                        // the proper translation
                         translate_operator(op,
                                            &mut builder,
                                            &mut stack,
@@ -222,9 +260,7 @@ fn translate_operator(op: &Operator,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
                       func_imports: &mut FunctionImports) {
-    println!("Translating: {:?}, unreachable: {}",
-             op,
-             state.unreachable_depth);
+    println!("Translating: {:?}", op);
     state.last_inst_return = false;
     match *op {
         Operator::GetLocal { local_index } => stack.push(builder.use_var(Local(local_index))),
@@ -436,6 +472,7 @@ fn translate_operator(op: &Operator,
         Operator::Else => {
             // We take the control frame pushed by the if, use its ebb as the else body
             // and push a new control frame with a new ebb for the code after the if/then/else
+            // At the end of the then clause we jump to the destination
             let (destination, return_values_count, branch_inst) = match &control_stack[control_stack.len() -
                                                                          1] {
                 &ControlStackFrame::If {
@@ -446,18 +483,9 @@ fn translate_operator(op: &Operator,
                 } => (destination, return_values_count, branch_inst),
                 _ => panic!("should not happen"),
             };
-            // At the end of the then clause we jump to the destination
-            if state.unreachable_depth > 0 {
-                if state.unreachable_depth == 1 {
-                    builder.switch_to_block(destination);
-                    builder.seal_block(destination);
-                }
-                state.unreachable_depth -= 1;
-            } else {
-                let cut_index = stack.len() - return_values_count;
-                let jump_args = stack.split_off(cut_index);
-                builder.ins().jump(destination, jump_args.as_slice());
-            }
+            let cut_index = stack.len() - return_values_count;
+            let jump_args = stack.split_off(cut_index);
+            builder.ins().jump(destination, jump_args.as_slice());
             // We change the target of the branch instruction
             let else_ebb = builder.create_ebb();
             builder.change_jump_destination(branch_inst, else_ebb);
@@ -466,22 +494,15 @@ fn translate_operator(op: &Operator,
         }
         Operator::End => {
             let frame = control_stack.pop().unwrap();
-            if state.unreachable_depth > 0 {
-                if state.unreachable_depth == 1 {
-                    builder.switch_to_block(frame.following_code());
-                    builder.seal_block(frame.following_code());
-                }
-                state.unreachable_depth -= 1;
-            } else {
-                let cut_index = stack.len() - frame.return_values_count();
-                let jump_args = stack.split_off(cut_index);
-                builder
-                    .ins()
-                    .jump(frame.following_code(), jump_args.as_slice());
-                builder.switch_to_block(frame.following_code());
-                builder.seal_block(frame.following_code());
-                stack.extend_from_slice(builder.ebb_args(frame.following_code()));
-            }
+            let cut_index = stack.len() - frame.return_values_count();
+            let jump_args = stack.split_off(cut_index);
+            builder
+                .ins()
+                .jump(frame.following_code(), jump_args.as_slice());
+            builder.switch_to_block(frame.following_code());
+            builder.seal_block(frame.following_code());
+            stack.extend_from_slice(builder.ebb_args(frame.following_code()));
+
         }
         Operator::Br { relative_depth } => {
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
@@ -491,7 +512,7 @@ fn translate_operator(op: &Operator,
                 .ins()
                 .jump(frame.br_destination(), jump_args.as_slice());
             // We signal that all the code that follows until the next End is unreachable
-            state.unreachable_depth = 1;
+            state.real_unreachable_stack_depth = 1 + relative_depth as usize;
         }
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
@@ -525,14 +546,14 @@ fn translate_operator(op: &Operator,
             } else {
                 unimplemented!()
             }
-            state.unreachable_depth = 1;
+            state.real_unreachable_stack_depth = 1 + default as usize;
         }
         Operator::Nop => {
             // We do nothing
         }
         Operator::Unreachable => {
             builder.ins().trap();
-            state.unreachable_depth = 1;
+            state.real_unreachable_stack_depth = 1;
         }
         Operator::Call { function_index } => {
             let args_num = args_count(function_index as usize, functions, signatures);
