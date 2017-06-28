@@ -7,7 +7,7 @@ use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator};
-use translation_utils::{f32_translation, f64_translation, return_values_count};
+use translation_utils::{f32_translation, f64_translation, return_values_count, type_to_type};
 use std::collections::HashMap;
 use std::u32;
 
@@ -68,6 +68,13 @@ impl ControlStackFrame {
             &ControlStackFrame::If { destination, .. } |
             &ControlStackFrame::Block { destination, .. } => destination,
             &ControlStackFrame::Loop { header, .. } => header,
+        }
+    }
+    fn is_loop(&self) -> bool {
+        match self {
+            &ControlStackFrame::If { .. } |
+            &ControlStackFrame::Block { .. } => false,
+            &ControlStackFrame::Loop { .. } => true,
         }
     }
 }
@@ -157,15 +164,10 @@ pub fn translate_function_body(parser: &mut Parser,
         };
         loop {
             let parser_state = parser.read();
-
             match *parser_state {
                 ParserState::CodeOperator(ref op) => {
                     if state.phantom_unreachable_stack_depth +
                        state.real_unreachable_stack_depth > 0 {
-                        println!("Unreachable ({},{}): {:?}",
-                                 state.real_unreachable_stack_depth,
-                                 state.phantom_unreachable_stack_depth,
-                                 op);
                         // We don't translate because the code is unreachable
                         // Nevertheless we have to record a phantom stack for this code
                         // to know when the unreachable code ends
@@ -187,6 +189,13 @@ pub fn translate_function_body(parser: &mut Parser,
                                         // The code in this block will be reachable so we have to switch to it
                                         builder.switch_to_block(frame.following_code());
                                         builder.seal_block(frame.following_code());
+                                        // If it is a loop we also have to seal the body loop block
+                                        match frame {
+                                            ControlStackFrame::Loop { header, .. } => {
+                                                builder.seal_block(header)
+                                            }
+                                            _ => {}
+                                        }
                                         stack.extend_from_slice(builder.ebb_args(frame.following_code()));
                                     }
                                     state.real_unreachable_stack_depth -= 1;
@@ -229,6 +238,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &mut func_imports)
                     }
                 }
+
                 ParserState::EndFunctionBody => break,
                 _ => return Err(String::from("wrong content in function body")),
             }
@@ -260,7 +270,6 @@ fn translate_operator(op: &Operator,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
                       func_imports: &mut FunctionImports) {
-    println!("Translating: {:?}", op);
     state.last_inst_return = false;
     match *op {
         Operator::GetLocal { local_index } => stack.push(builder.use_var(Local(local_index))),
@@ -354,6 +363,42 @@ fn translate_operator(op: &Operator,
             let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
+        Operator::I32GtS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32GtU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::UnsignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64GtS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64GtU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::UnsignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Lt => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F64Lt => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
         Operator::I32Eqz => {
             let arg = stack.pop().unwrap();
             let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
@@ -362,6 +407,30 @@ fn translate_operator(op: &Operator,
         Operator::I64Eqz => {
             let arg = stack.pop().unwrap();
             let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::Equal, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::Equal, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F64Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
         Operator::F32Neg => {
@@ -395,9 +464,6 @@ fn translate_operator(op: &Operator,
             let arg1 = stack.pop().unwrap();
             let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::Drop => {
-            stack.pop();
         }
         Operator::F32Const { value } => {
             stack.push(builder.ins().f32const(f32_translation(value)));
@@ -443,6 +509,12 @@ fn translate_operator(op: &Operator,
         }
         Operator::Block { ty } => {
             let next = builder.create_ebb();
+            match type_to_type(&ty) {
+                Ok(ty_cre) => {
+                    builder.append_ebb_arg(next, ty_cre);
+                }
+                Err(_) => {}
+            }
             control_stack.push(ControlStackFrame::Block {
                                    destination: next,
                                    return_values_count: return_values_count(ty),
@@ -451,6 +523,12 @@ fn translate_operator(op: &Operator,
         Operator::Loop { ty } => {
             let loop_body = builder.create_ebb();
             let next = builder.create_ebb();
+            match type_to_type(&ty) {
+                Ok(ty_cre) => {
+                    builder.append_ebb_arg(next, ty_cre);
+                }
+                Err(_) => {}
+            }
             builder.ins().jump(loop_body, &[]);
             control_stack.push(ControlStackFrame::Loop {
                                    destination: next,
@@ -463,6 +541,18 @@ fn translate_operator(op: &Operator,
             let val = stack.pop().unwrap();
             let if_not = builder.create_ebb();
             let jump_inst = builder.ins().brz(val, if_not, &[]);
+            // Here we append an argument to an Ebb targeted by an argumentless jump instruction
+            // But in fact there are two cases:
+            // - either the If does not have a Else clause, in that case ty = EmptyBlock
+            //   and we add nothing;
+            // - either the If have an Else clause, in that case the destination of this jump
+            //   instruction will be changed later when we translate the Else operator.
+            match type_to_type(&ty) {
+                Ok(ty_cre) => {
+                    builder.append_ebb_arg(if_not, ty_cre);
+                }
+                Err(_) => {}
+            }
             control_stack.push(ControlStackFrame::If {
                                    destination: if_not,
                                    branch_inst: jump_inst,
@@ -494,20 +584,31 @@ fn translate_operator(op: &Operator,
         }
         Operator::End => {
             let frame = control_stack.pop().unwrap();
-            let cut_index = stack.len() - frame.return_values_count();
-            let jump_args = stack.split_off(cut_index);
-            builder
-                .ins()
-                .jump(frame.following_code(), jump_args.as_slice());
+            if !builder.is_unreachable() {
+                let cut_index = stack.len() - frame.return_values_count();
+                let jump_args = stack.split_off(cut_index);
+                builder
+                    .ins()
+                    .jump(frame.following_code(), jump_args.as_slice());
+            }
             builder.switch_to_block(frame.following_code());
             builder.seal_block(frame.following_code());
+            // If it is a loop we also have to seal the body loop block
+            match frame {
+                ControlStackFrame::Loop { header, .. } => builder.seal_block(header),
+                _ => {}
+            }
             stack.extend_from_slice(builder.ebb_args(frame.following_code()));
 
         }
         Operator::Br { relative_depth } => {
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
-            let cut_index = stack.len() - frame.return_values_count();
-            let jump_args = stack.split_off(cut_index);
+            let jump_args = if frame.is_loop() {
+                Vec::new()
+            } else {
+                let cut_index = stack.len() - frame.return_values_count();
+                stack.split_off(cut_index)
+            };
             builder
                 .ins()
                 .jump(frame.br_destination(), jump_args.as_slice());
@@ -517,8 +618,12 @@ fn translate_operator(op: &Operator,
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
-            let cut_index = stack.len() - frame.return_values_count();
-            let jump_args = stack.split_off(cut_index);
+            let jump_args = if frame.is_loop() {
+                Vec::new()
+            } else {
+                let cut_index = stack.len() - frame.return_values_count();
+                stack.split_off(cut_index)
+            };
             builder
                 .ins()
                 .brnz(val, frame.br_destination(), jump_args.as_slice());
@@ -550,6 +655,9 @@ fn translate_operator(op: &Operator,
         }
         Operator::Nop => {
             // We do nothing
+        }
+        Operator::Drop => {
+            stack.pop();
         }
         Operator::Unreachable => {
             builder.ins().trap();

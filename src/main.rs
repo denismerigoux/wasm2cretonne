@@ -22,14 +22,14 @@ fn main() {
     let data = match read_wasm_file(path) {
         Ok(data) => data,
         Err(err) => {
-            println!("{}", err);
+            println!("Error: {}", err);
             return;
         }
     };
     let _ = match translate_module(data) {
         Ok(funcs) => funcs,
         Err(string) => {
-            println!("{}", string);
+            println!("Error : {}", string);
             return;
         }
     };
