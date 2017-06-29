@@ -339,6 +339,16 @@ fn translate_operator(op: &Operator,
             let arg1 = stack.pop().unwrap();
             stack.push(builder.ins().fmul(arg1, arg2));
         }
+        Operator::F32Div => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fdiv(arg1, arg2));
+        }
+        Operator::F64Div => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fdiv(arg1, arg2));
+        }
         Operator::I32LtS => {
             let arg2 = stack.pop().unwrap();
             let arg1 = stack.pop().unwrap();
