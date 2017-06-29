@@ -1,4 +1,4 @@
-use wasmparser::{ParserState, SectionCode, ParserInput, Parser};
+use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section};
 use translation_utils::type_to_type;

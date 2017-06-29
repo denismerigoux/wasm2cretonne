@@ -1,7 +1,7 @@
 use translation_utils::type_to_type;
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
-use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind};
+use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder};
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;

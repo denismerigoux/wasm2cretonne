@@ -1,5 +1,6 @@
 use wasmparser;
 use cretonne;
+use std::mem;
 
 /// Helper function translating wasmparser types to Cretonne types when possible.
 pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
@@ -14,11 +15,11 @@ pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
 
 /// Converts between the two types
 pub fn f32_translation(x: wasmparser::Ieee32) -> cretonne::ir::immediates::Ieee32 {
-    cretonne::ir::immediates::Ieee32::new(x.bits() as f32)
+    cretonne::ir::immediates::Ieee32::new(unsafe { mem::transmute(x.bits()) })
 }
 
 pub fn f64_translation(x: wasmparser::Ieee64) -> cretonne::ir::immediates::Ieee64 {
-    cretonne::ir::immediates::Ieee64::new(x.bits() as f64)
+    cretonne::ir::immediates::Ieee64::new(unsafe { mem::transmute(x.bits()) })
 }
 
 pub fn return_values_count(ty: wasmparser::Type) -> usize {

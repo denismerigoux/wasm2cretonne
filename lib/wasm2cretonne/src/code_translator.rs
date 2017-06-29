@@ -6,7 +6,7 @@ use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
-use wasmparser::{Parser, ParserState, Operator};
+use wasmparser::{Parser, ParserState, Operator, WasmDecoder};
 use translation_utils::{f32_translation, f64_translation, return_values_count, type_to_type};
 use std::collections::HashMap;
 use std::u32;
@@ -36,15 +36,18 @@ enum ControlStackFrame {
         destination: Ebb,
         branch_inst: Inst,
         return_values_count: usize,
+        original_stack_size: usize,
     },
     Block {
         destination: Ebb,
         return_values_count: usize,
+        original_stack_size: usize,
     },
     Loop {
         destination: Ebb,
         header: Ebb,
         return_values_count: usize,
+        original_stack_size: usize,
     },
 }
 
@@ -68,6 +71,13 @@ impl ControlStackFrame {
             &ControlStackFrame::If { destination, .. } |
             &ControlStackFrame::Block { destination, .. } => destination,
             &ControlStackFrame::Loop { header, .. } => header,
+        }
+    }
+    fn original_stack_size(&self) -> usize {
+        match self {
+            &ControlStackFrame::If { original_stack_size, .. } |
+            &ControlStackFrame::Block { original_stack_size, .. } |
+            &ControlStackFrame::Loop { original_stack_size, .. } => original_stack_size,
         }
     }
     fn is_loop(&self) -> bool {
@@ -116,7 +126,7 @@ pub fn translate_function_body(parser: &mut Parser,
         .iter()
         .map(|arg| arg.value_type)
         .collect();
-    func.signature = sig;
+    func.signature = sig.clone();
     match exports {
         &None => (),
         &Some(ref exports) => {
@@ -162,8 +172,16 @@ pub fn translate_function_body(parser: &mut Parser,
             phantom_unreachable_stack_depth: 0,
             real_unreachable_stack_depth: 0,
         };
+        // We initialize the control stack with the implicit function block
+        let end_ebb = builder.create_ebb();
+        control_stack.push(ControlStackFrame::Block {
+                               destination: end_ebb,
+                               original_stack_size: 0,
+                               return_values_count: sig.return_types.len(),
+                           });
         loop {
             let parser_state = parser.read();
+            //println!("Translating: {:?}", parser_state);
             match *parser_state {
                 ParserState::CodeOperator(ref op) => {
                     if state.phantom_unreachable_stack_depth +
@@ -196,6 +214,10 @@ pub fn translate_function_body(parser: &mut Parser,
                                             }
                                             _ => {}
                                         }
+                                        // Now we have to split off the stack the values not used
+                                        // by unreachable code that hasn't been translated
+                                        stack.truncate(frame.original_stack_size());
+                                        // And add the return values of the block
                                         stack.extend_from_slice(builder.ebb_args(frame.following_code()));
                                     }
                                     state.real_unreachable_stack_depth -= 1;
@@ -207,16 +229,23 @@ pub fn translate_function_body(parser: &mut Parser,
                                 } else {
                                     // Encountering an real else means that the code in the else
                                     // clause is reachable again
-                                    let branch_inst = match &control_stack[control_stack.len() -
-                                                             1] {
-                                        &ControlStackFrame::If { branch_inst, .. } => branch_inst,
-                                        _ => panic!("should not happen"),
-                                    };
+                                    let (branch_inst, original_stack_size) =
+                                        match &control_stack[control_stack.len() - 1] {
+                                            &ControlStackFrame::If {
+                                                branch_inst,
+                                                original_stack_size,
+                                                ..
+                                            } => (branch_inst, original_stack_size),
+                                            _ => panic!("should not happen"),
+                                        };
                                     // We change the target of the branch instruction
                                     let else_ebb = builder.create_ebb();
                                     builder.change_jump_destination(branch_inst, else_ebb);
                                     builder.seal_block(else_ebb);
                                     builder.switch_to_block(else_ebb);
+                                    // Now we have to split off the stack the values not used
+                                    // by unreachable code that hasn't been translated
+                                    stack.truncate(original_stack_size);
                                     state.real_unreachable_stack_depth = 0;
                                 }
                             }
@@ -373,6 +402,34 @@ fn translate_operator(op: &Operator,
             let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
+        Operator::I32LeS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32LeU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64LeS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64LeU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
         Operator::I32GtS => {
             let arg2 = stack.pop().unwrap();
             let arg1 = stack.pop().unwrap();
@@ -516,6 +573,7 @@ fn translate_operator(op: &Operator,
             builder.ins().return_(stack.as_slice());
             stack.clear();
             state.last_inst_return = true;
+            state.real_unreachable_stack_depth = 1;
         }
         Operator::Block { ty } => {
             let next = builder.create_ebb();
@@ -528,6 +586,7 @@ fn translate_operator(op: &Operator,
             control_stack.push(ControlStackFrame::Block {
                                    destination: next,
                                    return_values_count: return_values_count(ty),
+                                   original_stack_size: stack.len(),
                                });
         }
         Operator::Loop { ty } => {
@@ -544,6 +603,7 @@ fn translate_operator(op: &Operator,
                                    destination: next,
                                    header: loop_body,
                                    return_values_count: return_values_count(ty),
+                                   original_stack_size: stack.len(),
                                });
             builder.switch_to_block(loop_body);
         }
@@ -567,6 +627,7 @@ fn translate_operator(op: &Operator,
                                    destination: if_not,
                                    branch_inst: jump_inst,
                                    return_values_count: return_values_count(ty),
+                                   original_stack_size: stack.len(),
                                });
         }
         Operator::Else => {
@@ -628,26 +689,25 @@ fn translate_operator(op: &Operator,
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
-            let jump_args = if frame.is_loop() {
-                Vec::new()
-            } else {
-                let cut_index = stack.len() - frame.return_values_count();
-                stack.split_off(cut_index)
-            };
+            let cut_index = stack.len() - frame.return_values_count();
+            let jump_args = stack.split_off(cut_index);
             builder
                 .ins()
                 .brnz(val, frame.br_destination(), jump_args.as_slice());
+            // The values returned by the branch are still available for the reachable
+            // code that comes after it
+            stack.extend(jump_args);
         }
         Operator::BrTable { ref table } => {
             // TODO: deal with jump arguments by splitting edges
             let (depths, default) = table.read_table();
-            let jt = builder.create_jump_table();
             let jump_args_count = control_stack[control_stack.len() - 1 - (default as usize)]
                 .return_values_count();
             if jump_args_count == 0 {
                 // No jump arguments
                 let val = stack.pop().unwrap();
                 if depths.len() > 0 {
+                    let jt = builder.create_jump_table();
                     for (index, depth) in depths.iter().enumerate() {
                         let ebb = control_stack[control_stack.len() - 1 - (*depth as usize)]
                             .br_destination();
@@ -659,7 +719,41 @@ fn translate_operator(op: &Operator,
                     .br_destination();
                 builder.ins().jump(ebb, &[]);
             } else {
-                unimplemented!()
+                // Here we have jump arguments, but Cretonne's br_table doesn't support them
+                // We then proceed to split the edges going out of the br_table
+                let cut_index = stack.len() - jump_args_count;
+                let jump_args = stack.split_off(cut_index);
+                let val = stack.pop().unwrap();
+                if depths.len() > 0 {
+                    let jt = builder.create_jump_table();
+                    let dest_ebbs: Vec<(Ebb, usize)> = depths
+                        .iter()
+                        .enumerate()
+                        .map(|(index, &depth)| {
+                                 let branch_ebb = builder.create_ebb();
+                                 builder.insert_jump_table_entry(jt, index, branch_ebb);
+                                 (branch_ebb, depth as usize)
+                             })
+                        .collect();
+                    builder.ins().br_table(val, jt);
+                    let default_ebb = control_stack[control_stack.len() - 1 - (default as usize)]
+                        .br_destination();
+                    builder.ins().jump(default_ebb, jump_args.as_slice());
+                    stack.extend(jump_args.clone());
+                    for (dest_ebb, depth) in dest_ebbs {
+                        builder.switch_to_block(dest_ebb);
+                        builder.seal_block(dest_ebb);
+                        let real_dest_ebb = control_stack[control_stack.len() - 1 -
+                        (depth as usize)]
+                                .br_destination();
+                        builder.ins().jump(real_dest_ebb, jump_args.as_slice());
+                    }
+                } else {
+                    let ebb = control_stack[control_stack.len() - 1 - (default as usize)]
+                        .br_destination();
+                    builder.ins().jump(ebb, jump_args.as_slice());
+                    stack.extend(jump_args);
+                }
             }
             state.real_unreachable_stack_depth = 1 + default as usize;
         }
@@ -676,8 +770,7 @@ fn translate_operator(op: &Operator,
         Operator::Call { function_index } => {
             let args_num = args_count(function_index as usize, functions, signatures);
             let cut_index = stack.len() - args_num;
-            let mut call_args = stack.split_off(cut_index);
-            call_args.reverse();
+            let call_args = stack.split_off(cut_index);
             let internal_function_index = find_import(function_index as usize,
                                                       builder,
                                                       func_imports,
@@ -692,7 +785,7 @@ fn translate_operator(op: &Operator,
                 stack.push(*val);
             }
         }
-        _ => unimplemented!(),
+        _ => panic!(format!("Unimplemted: {:?}", op)),
     }
 }
 
