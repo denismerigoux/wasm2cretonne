@@ -18,7 +18,7 @@ fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
 
 fn main() {
     let files = vec!["tests/br_if.wast.0.wasm",
-                     //"tests/loop.wast.0.wasm",
+                     "tests/loop.wast.0.wasm",
                      "tests/br_table.wast.0.wasm",
                      "tests/block.wast.0.wasm",
                      "tests/call.wast.0.wasm",
@@ -33,15 +33,15 @@ fn main() {
                 return;
             }
         };
-        let _ = match translate_module(data) {
+        let funcs = match translate_module(data) {
             Ok(funcs) => funcs,
             Err(string) => {
                 println!("Error : {}", string);
                 return;
             }
         };
+        for func in funcs {
+            println!("{}", func.display(None));
+        }
     }
-    // for func in funcs {
-    //     println!("{}", func.display(None));
-    // }
 }

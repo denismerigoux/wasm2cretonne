@@ -278,10 +278,10 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
         // Because the function has an implicit block as body, we need to explicitely close it
-        let frame = control_stack.pop().unwrap();
-        if !state.last_inst_return && !builder.is_unreachable() {
+        if !state.last_inst_return && (!builder.is_pristine() || !builder.is_unreachable()) {
             builder.ins().return_(stack.as_slice());
         }
+        let frame = control_stack.pop().unwrap();
         builder.switch_to_block(frame.following_code());
         builder.seal_block(frame.following_code());
         if !builder.is_unreachable() {
