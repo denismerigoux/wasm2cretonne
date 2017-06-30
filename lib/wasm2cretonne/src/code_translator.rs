@@ -191,7 +191,6 @@ pub fn translate_function_body(parser: &mut Parser,
                 ParserState::CodeOperator(ref op) => {
                     if state.phantom_unreachable_stack_depth +
                        state.real_unreachable_stack_depth > 0 {
-                        state.last_inst_return = false;
                         // We don't translate because the code is unreachable
                         // Nevertheless we have to record a phantom stack for this code
                         // to know when the unreachable code ends
@@ -226,6 +225,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                         stack.extend_from_slice(builder.ebb_args(frame.following_code()));
                                     }
                                     state.real_unreachable_stack_depth -= 1;
+                                    state.last_inst_return = false;
                                 }
                             }
                             Operator::Else => {
@@ -252,6 +252,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                     // by unreachable code that hasn't been translated
                                     stack.truncate(original_stack_size);
                                     state.real_unreachable_stack_depth = 0;
+                                    state.last_inst_return = false;
                                 }
                             }
                             _ => {
@@ -266,6 +267,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &mut stack,
                                            &mut control_stack,
                                            &mut state,
+                                           &sig,
                                            &functions,
                                            &signatures,
                                            &exports,
@@ -306,6 +308,7 @@ fn translate_operator(op: &Operator,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
+                      sig: &Signature,
                       functions: &Vec<u32>,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
@@ -511,6 +514,30 @@ fn translate_operator(op: &Operator,
             let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
+        Operator::I32Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I64Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F64Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
         Operator::F32Neg => {
             let arg = stack.pop().unwrap();
             stack.push(builder.ins().fneg(arg));
@@ -580,8 +607,20 @@ fn translate_operator(op: &Operator,
             let short_res = builder.ins().ctz(val);
             stack.push(builder.ins().sextend(I32, short_res));
         }
+        Operator::Drop => {
+            stack.pop();
+        }
+        Operator::Select => {
+            let cond = stack.pop().unwrap();
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().select(cond, arg2, arg1));
+        }
         Operator::Return => {
-            builder.ins().return_(stack.as_slice());
+            let return_count = sig.return_types.len();
+            let cut_index = stack.len() - return_count;
+            let return_args = stack.split_off(cut_index);
+            builder.ins().return_(return_args.as_slice());
             state.last_inst_return = true;
             state.real_unreachable_stack_depth = 1;
         }
@@ -782,9 +821,6 @@ fn translate_operator(op: &Operator,
         Operator::Nop => {
             // We do nothing
         }
-        Operator::Drop => {
-            stack.pop();
-        }
         Operator::Unreachable => {
             builder.ins().trap();
             state.real_unreachable_stack_depth = 1;
@@ -806,6 +842,9 @@ fn translate_operator(op: &Operator,
             for val in ret_values {
                 stack.push(*val);
             }
+        }
+        Operator::GrowMemory { .. } => {
+            //TODO: translate this with runtime
         }
         _ => panic!(format!("Unimplemted: {:?}", op)),
     }

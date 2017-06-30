@@ -2,6 +2,10 @@ extern crate wasm2cretonne;
 extern crate wasmparser;
 extern crate cretonne;
 extern crate wasmtext;
+extern crate docopt;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 use wasm2cretonne::module_translator::translate_module;
 use cretonne::ir::Function;
@@ -12,6 +16,28 @@ use std::fs::File;
 use std::io::{BufReader, Error, stdout, stdin};
 use std::io::prelude::*;
 use std::process::Command;
+use docopt::Docopt;
+
+const USAGE: &str = "
+Wasm to Cretonne IL translation utility
+
+Usage:
+    cton-util [-i] file <file>...
+    cton-util [-i] all
+    cton-util --help | --version
+
+Options:
+    -i, --interactive   displays the translated functions
+    -h, --help          print this help message
+    --version           print the Cretonne version
+";
+
+#[derive(Deserialize, Debug)]
+struct Args {
+    cmd_all: bool,
+    arg_file: Vec<String>,
+    flag_interactive: bool,
+}
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
     let mut buf: Vec<u8> = Vec::new();
@@ -23,16 +49,33 @@ fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, Error> {
 
 
 fn main() {
-    let files = vec!["tests/br_if.wast.0.wasm",
-                     "tests/loop.wast.0.wasm",
-                     "tests/br_table.wast.0.wasm",
-                     "tests/block.wast.0.wasm",
-                     "tests/call.wast.0.wasm",
-                     "tests/br.wast.0.wasm"];
+    let test_files = vec!["tests/br_if.wast.0.wasm",
+                          "tests/loop.wast.0.wasm",
+                          "tests/br_table.wast.0.wasm",
+                          "tests/block.wast.0.wasm",
+                          "tests/call.wast.0.wasm",
+                          "tests/if.wast.0.wasm",
+                          "tests/br.wast.0.wasm",
+                          "tests/nop.wast.0.wasm",
+                          "tests/return.wast.0.wasm"]
+            .iter()
+            .map(|&s| String::from(s))
+            .collect();
+
+    let args: Args = Docopt::new(USAGE)
+        .and_then(|d| d.help(true).version(Some(format!("0.0.0"))).deserialize())
+        .unwrap_or_else(|e| e.exit());
+
+    let files: Vec<String>;
+    if args.cmd_all || args.arg_file.len() == 0 {
+        files = test_files;
+    } else {
+        files = args.arg_file;
+    }
 
 
     for filename in files {
-        let path = PathBuf::from(filename);
+        let path = PathBuf::from(filename.clone());
         println!("Reading: {:?}", path.as_os_str());
         let data = match read_wasm_file(path) {
             Ok(data) => data,
@@ -48,16 +91,18 @@ fn main() {
                 return;
             }
         };
-        let mut writer1 = stdout();
-        let mut writer2 = stdout();
-        match pretty_print_translation(filename, &data, &funcs, &mut writer1, &mut writer2) {
-            Err(error) => panic!(error),
-            Ok(()) => {}
-        };
+        if args.flag_interactive {
+            let mut writer1 = stdout();
+            let mut writer2 = stdout();
+            match pretty_print_translation(&filename, &data, &funcs, &mut writer1, &mut writer2) {
+                Err(error) => panic!(error),
+                Ok(()) => {}
+            };
+        }
     }
 }
 
-fn pretty_print_translation(filename: &str,
+fn pretty_print_translation(filename: &String,
                             data: &Vec<u8>,
                             funcs: &Vec<Function>,
                             writer_wast: &mut Write,

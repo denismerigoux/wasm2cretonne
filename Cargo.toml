@@ -12,3 +12,6 @@ wasm2cretonne = { path = "lib/wasm2cretonne" }
 wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
 wasmtext = { git = "https://github.com/yurydelendik/wasmtext" }
+docopt = "0.8.0"
+serde = "1.0.8"
+serde_derive = "1.0.8"
