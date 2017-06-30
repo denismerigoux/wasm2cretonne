@@ -50,14 +50,15 @@ fn main() {
         };
         let mut writer1 = stdout();
         let mut writer2 = stdout();
-        match pretty_print_translation(&data, &funcs, &mut writer1, &mut writer2) {
+        match pretty_print_translation(filename, &data, &funcs, &mut writer1, &mut writer2) {
             Err(error) => panic!(error),
             Ok(()) => {}
         };
     }
 }
 
-fn pretty_print_translation(data: &Vec<u8>,
+fn pretty_print_translation(filename: &str,
+                            data: &Vec<u8>,
                             funcs: &Vec<Function>,
                             writer_wast: &mut Write,
                             writer_cretonne: &mut Write)
@@ -81,10 +82,11 @@ fn pretty_print_translation(data: &Vec<u8>,
     }
     let mut function_index = 0;
     loop {
-        write!(writer_cretonne,
-               "====== Begin function block ======\nWast ---------->\n")?;
         match parser.read() {
             s @ &ParserState::BeginFunctionBody { .. } => {
+                write!(writer_cretonne,
+                       "====== Begin function block ({}) ======\nWast ---------->\n",
+                       filename)?;
                 parser_writer.write(&s)?;
             }
             s @ &ParserState::EndSection => {
