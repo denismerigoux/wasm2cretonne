@@ -181,11 +181,17 @@ pub fn translate_function_body(parser: &mut Parser,
                            });
         loop {
             let parser_state = parser.read();
-            //println!("Translating: {:?}", parser_state);
+            // println!("Translating: {:?} ({},{}), stack: {:?}\n{}",
+            //          parser_state,
+            //          state.real_unreachable_stack_depth,
+            //          state.phantom_unreachable_stack_depth,
+            //          stack,
+            //          builder.display());
             match *parser_state {
                 ParserState::CodeOperator(ref op) => {
                     if state.phantom_unreachable_stack_depth +
                        state.real_unreachable_stack_depth > 0 {
+                        state.last_inst_return = false;
                         // We don't translate because the code is unreachable
                         // Nevertheless we have to record a phantom stack for this code
                         // to know when the unreachable code ends
@@ -203,21 +209,20 @@ pub fn translate_function_body(parser: &mut Parser,
                                     // We switch to the destination block but we don't insert
                                     // a jump instruction since the code is still unreachable
                                     let frame = control_stack.pop().unwrap();
-                                    if state.real_unreachable_stack_depth == 1 {
-                                        // The code in this block will be reachable so we have to switch to it
-                                        builder.switch_to_block(frame.following_code());
-                                        builder.seal_block(frame.following_code());
-                                        // If it is a loop we also have to seal the body loop block
-                                        match frame {
-                                            ControlStackFrame::Loop { header, .. } => {
-                                                builder.seal_block(header)
-                                            }
-                                            _ => {}
+                                    builder.switch_to_block(frame.following_code());
+                                    builder.seal_block(frame.following_code());
+                                    // If it is a loop we also have to seal the body loop block
+                                    match frame {
+                                        ControlStackFrame::Loop { header, .. } => {
+                                            builder.seal_block(header)
                                         }
-                                        // Now we have to split off the stack the values not used
-                                        // by unreachable code that hasn't been translated
-                                        stack.truncate(frame.original_stack_size());
-                                        // And add the return values of the block
+                                        _ => {}
+                                    }
+                                    // Now we have to split off the stack the values not used
+                                    // by unreachable code that hasn't been translated
+                                    stack.truncate(frame.original_stack_size());
+                                    // And add the return values of the block
+                                    if state.real_unreachable_stack_depth == 1 {
                                         stack.extend_from_slice(builder.ebb_args(frame.following_code()));
                                     }
                                     state.real_unreachable_stack_depth -= 1;
@@ -272,18 +277,24 @@ pub fn translate_function_body(parser: &mut Parser,
                 _ => return Err(String::from("wrong content in function body")),
             }
         }
-        if !state.last_inst_return {
+        // Because the function has an implicit block as body, we need to explicitely close it
+        let frame = control_stack.pop().unwrap();
+        if !state.last_inst_return && !builder.is_unreachable() {
+            builder.ins().return_(stack.as_slice());
+        }
+        builder.switch_to_block(frame.following_code());
+        builder.seal_block(frame.following_code());
+        if !builder.is_unreachable() {
+            stack.extend_from_slice(builder.ebb_args(frame.following_code()));
             builder.ins().return_(stack.as_slice());
         }
     }
     // TODO: remove the verification in production
     match verify_function(&func, None) {
-        Ok(()) => {println!("{}", func.display(None));Ok(func)}
+        Ok(()) => {Ok(func)}
         Err(err) => {
             println!("{}", func.display(None));
-            //Err(format!("{}: {}", err.location, err.message))
-            println!("{}: {}", err.location, err.message);
-            Ok(func)
+            Err(format!("({}) {}", err.location, err.message))
         }
     }
 }
@@ -571,7 +582,6 @@ fn translate_operator(op: &Operator,
         }
         Operator::Return => {
             builder.ins().return_(stack.as_slice());
-            stack.clear();
             state.last_inst_return = true;
             state.real_unreachable_stack_depth = 1;
         }
@@ -670,7 +680,6 @@ fn translate_operator(op: &Operator,
                 _ => {}
             }
             stack.extend_from_slice(builder.ebb_args(frame.following_code()));
-
         }
         Operator::Br { relative_depth } => {
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
@@ -701,7 +710,13 @@ fn translate_operator(op: &Operator,
         Operator::BrTable { ref table } => {
             // TODO: deal with jump arguments by splitting edges
             let (depths, default) = table.read_table();
-            let jump_args_count = control_stack[control_stack.len() - 1 - (default as usize)]
+            let mut min_depth = default;
+            for depth in depths.iter() {
+                if *depth < min_depth {
+                    min_depth = *depth;
+                }
+            }
+            let jump_args_count = control_stack[control_stack.len() - 1 - (min_depth as usize)]
                 .return_values_count();
             if jump_args_count == 0 {
                 // No jump arguments
@@ -718,12 +733,13 @@ fn translate_operator(op: &Operator,
                 let ebb = control_stack[control_stack.len() - 1 - (default as usize)]
                     .br_destination();
                 builder.ins().jump(ebb, &[]);
+                state.real_unreachable_stack_depth = 1 + min_depth as usize;
             } else {
                 // Here we have jump arguments, but Cretonne's br_table doesn't support them
                 // We then proceed to split the edges going out of the br_table
+                let val = stack.pop().unwrap();
                 let cut_index = stack.len() - jump_args_count;
                 let jump_args = stack.split_off(cut_index);
-                let val = stack.pop().unwrap();
                 if depths.len() > 0 {
                     let jt = builder.create_jump_table();
                     let dest_ebbs: Vec<(Ebb, usize)> = depths
@@ -748,14 +764,15 @@ fn translate_operator(op: &Operator,
                                 .br_destination();
                         builder.ins().jump(real_dest_ebb, jump_args.as_slice());
                     }
+                    state.real_unreachable_stack_depth = 1 + min_depth as usize;
                 } else {
                     let ebb = control_stack[control_stack.len() - 1 - (default as usize)]
                         .br_destination();
                     builder.ins().jump(ebb, jump_args.as_slice());
                     stack.extend(jump_args);
+                    state.real_unreachable_stack_depth = 1 + min_depth as usize;
                 }
             }
-            state.real_unreachable_stack_depth = 1 + default as usize;
         }
         Operator::Nop => {
             // We do nothing
