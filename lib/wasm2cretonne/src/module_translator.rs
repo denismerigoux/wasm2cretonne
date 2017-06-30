@@ -7,7 +7,7 @@ use code_translator::translate_function_body;
 use cretonne::ir::frontend::ILBuilder;
 use std::collections::HashMap;
 
-pub fn translate_module(data: Vec<u8>) -> Result<Vec<Function>, String> {
+pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
         ParserState::BeginWasm { .. } => {}

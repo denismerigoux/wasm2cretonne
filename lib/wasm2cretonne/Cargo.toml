@@ -5,5 +5,5 @@ authors = ["The Cretonne Project Developers"]
 publish = false
 
 [dependencies]
-wasmparser = { git = "https://github.com/yurydelendik/wasmparser.rs" }
+wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}

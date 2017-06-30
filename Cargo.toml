@@ -4,6 +4,11 @@ version = "0.0.0"
 authors = ["The Cretonne Project Developers"]
 publish = false
 
+[[bin]]
+name = "wasm2cretonne-util"
+
 [dependencies]
 wasm2cretonne = { path = "lib/wasm2cretonne" }
-wasmparser = { git = "https://github.com/yurydelendik/wasmparser.rs" }
+wasmparser = "0.6.1"
+cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
+wasmtext = { git = "https://github.com/yurydelendik/wasmtext" }
