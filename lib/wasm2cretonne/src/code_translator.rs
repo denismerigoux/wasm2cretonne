@@ -7,7 +7,7 @@ use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder};
-use translation_utils::{f32_translation, f64_translation, return_values_count, type_to_type};
+use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types};
 use std::collections::HashMap;
 use std::u32;
 
@@ -35,28 +35,28 @@ enum ControlStackFrame {
     If {
         destination: Ebb,
         branch_inst: Inst,
-        return_values_count: usize,
+        return_values: Vec<Type>,
         original_stack_size: usize,
     },
     Block {
         destination: Ebb,
-        return_values_count: usize,
+        return_values: Vec<Type>,
         original_stack_size: usize,
     },
     Loop {
         destination: Ebb,
         header: Ebb,
-        return_values_count: usize,
+        return_values: Vec<Type>,
         original_stack_size: usize,
     },
 }
 
 impl ControlStackFrame {
-    fn return_values_count(&self) -> usize {
+    fn return_values(&self) -> &[Type] {
         match self {
-            &ControlStackFrame::If { return_values_count, .. } |
-            &ControlStackFrame::Block { return_values_count, .. } |
-            &ControlStackFrame::Loop { return_values_count, .. } => return_values_count,
+            &ControlStackFrame::If { ref return_values, .. } |
+            &ControlStackFrame::Block { ref return_values, .. } |
+            &ControlStackFrame::Loop { ref return_values, .. } => return_values.as_slice(),
         }
     }
     fn following_code(&self) -> Ebb {
@@ -142,7 +142,7 @@ pub fn translate_function_body(parser: &mut Parser,
     {
         let mut builder = FunctionBuilder::new(&mut func, il_builder);
         let first_ebb = builder.create_ebb();
-        builder.switch_to_block(first_ebb);
+        builder.switch_to_block(first_ebb, &[]);
         builder.seal_block(first_ebb);
         for i in 0..args_num {
             // First we declare the function arguments' as non-SSA vars because they will be
@@ -177,16 +177,18 @@ pub fn translate_function_body(parser: &mut Parser,
         control_stack.push(ControlStackFrame::Block {
                                destination: end_ebb,
                                original_stack_size: 0,
-                               return_values_count: sig.return_types.len(),
+                               return_values: sig.return_types
+                                   .iter()
+                                   .map(|argty| argty.value_type)
+                                   .collect(),
                            });
         loop {
             let parser_state = parser.read();
-            // println!("Translating: {:?} ({},{}), stack: {:?}\n{}",
+            // println!("Now translating: {:?} ({},{}), stack: {:?}",
             //          parser_state,
             //          state.real_unreachable_stack_depth,
             //          state.phantom_unreachable_stack_depth,
-            //          stack,
-            //          builder.display());
+            //          stack);
             match *parser_state {
                 ParserState::CodeOperator(ref op) => {
                     if state.phantom_unreachable_stack_depth +
@@ -208,7 +210,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                     // We switch to the destination block but we don't insert
                                     // a jump instruction since the code is still unreachable
                                     let frame = control_stack.pop().unwrap();
-                                    builder.switch_to_block(frame.following_code());
+                                    builder.switch_to_block(frame.following_code(), &[]);
                                     builder.seal_block(frame.following_code());
                                     // If it is a loop we also have to seal the body loop block
                                     match frame {
@@ -247,7 +249,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                     let else_ebb = builder.create_ebb();
                                     builder.change_jump_destination(branch_inst, else_ebb);
                                     builder.seal_block(else_ebb);
-                                    builder.switch_to_block(else_ebb);
+                                    builder.switch_to_block(else_ebb, &[]);
                                     // Now we have to split off the stack the values not used
                                     // by unreachable code that hasn't been translated
                                     stack.truncate(original_stack_size);
@@ -284,7 +286,7 @@ pub fn translate_function_body(parser: &mut Parser,
             builder.ins().return_(stack.as_slice());
         }
         let frame = control_stack.pop().unwrap();
-        builder.switch_to_block(frame.following_code());
+        builder.switch_to_block(frame.following_code(), frame.return_values());
         builder.seal_block(frame.following_code());
         if !builder.is_unreachable() {
             stack.extend_from_slice(builder.ebb_args(frame.following_code()));
@@ -634,7 +636,7 @@ fn translate_operator(op: &Operator,
             }
             control_stack.push(ControlStackFrame::Block {
                                    destination: next,
-                                   return_values_count: return_values_count(ty),
+                                   return_values: return_values_types(ty).unwrap(),
                                    original_stack_size: stack.len(),
                                });
         }
@@ -651,10 +653,10 @@ fn translate_operator(op: &Operator,
             control_stack.push(ControlStackFrame::Loop {
                                    destination: next,
                                    header: loop_body,
-                                   return_values_count: return_values_count(ty),
+                                   return_values: return_values_types(ty).unwrap(),
                                    original_stack_size: stack.len(),
                                });
-            builder.switch_to_block(loop_body);
+            builder.switch_to_block(loop_body, &[]);
         }
         Operator::If { ty } => {
             let val = stack.pop().unwrap();
@@ -675,7 +677,7 @@ fn translate_operator(op: &Operator,
             control_stack.push(ControlStackFrame::If {
                                    destination: if_not,
                                    branch_inst: jump_inst,
-                                   return_values_count: return_values_count(ty),
+                                   return_values: return_values_types(ty).unwrap(),
                                    original_stack_size: stack.len(),
                                });
         }
@@ -683,35 +685,35 @@ fn translate_operator(op: &Operator,
             // We take the control frame pushed by the if, use its ebb as the else body
             // and push a new control frame with a new ebb for the code after the if/then/else
             // At the end of the then clause we jump to the destination
-            let (destination, return_values_count, branch_inst) = match &control_stack[control_stack.len() -
-                                                                         1] {
+            let (destination, return_values, branch_inst) = match &control_stack[control_stack.len() -
+                                                                   1] {
                 &ControlStackFrame::If {
                     destination,
-                    return_values_count,
+                    ref return_values,
                     branch_inst,
                     ..
-                } => (destination, return_values_count, branch_inst),
+                } => (destination, return_values, branch_inst),
                 _ => panic!("should not happen"),
             };
-            let cut_index = stack.len() - return_values_count;
+            let cut_index = stack.len() - return_values.len();
             let jump_args = stack.split_off(cut_index);
             builder.ins().jump(destination, jump_args.as_slice());
             // We change the target of the branch instruction
             let else_ebb = builder.create_ebb();
             builder.change_jump_destination(branch_inst, else_ebb);
             builder.seal_block(else_ebb);
-            builder.switch_to_block(else_ebb);
+            builder.switch_to_block(else_ebb, &[]);
         }
         Operator::End => {
             let frame = control_stack.pop().unwrap();
             if !builder.is_unreachable() {
-                let cut_index = stack.len() - frame.return_values_count();
+                let cut_index = stack.len() - frame.return_values().len();
                 let jump_args = stack.split_off(cut_index);
                 builder
                     .ins()
                     .jump(frame.following_code(), jump_args.as_slice());
             }
-            builder.switch_to_block(frame.following_code());
+            builder.switch_to_block(frame.following_code(), frame.return_values());
             builder.seal_block(frame.following_code());
             // If it is a loop we also have to seal the body loop block
             match frame {
@@ -725,7 +727,7 @@ fn translate_operator(op: &Operator,
             let jump_args = if frame.is_loop() {
                 Vec::new()
             } else {
-                let cut_index = stack.len() - frame.return_values_count();
+                let cut_index = stack.len() - frame.return_values().len();
                 stack.split_off(cut_index)
             };
             builder
@@ -737,7 +739,7 @@ fn translate_operator(op: &Operator,
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
             let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
-            let cut_index = stack.len() - frame.return_values_count();
+            let cut_index = stack.len() - frame.return_values().len();
             let jump_args = stack.split_off(cut_index);
             builder
                 .ins()
@@ -756,7 +758,8 @@ fn translate_operator(op: &Operator,
                 }
             }
             let jump_args_count = control_stack[control_stack.len() - 1 - (min_depth as usize)]
-                .return_values_count();
+                .return_values()
+                .len();
             if jump_args_count == 0 {
                 // No jump arguments
                 let val = stack.pop().unwrap();
@@ -801,7 +804,7 @@ fn translate_operator(op: &Operator,
                     builder.ins().jump(default_ebb, jump_args.as_slice());
                     stack.extend(jump_args.clone());
                     for (depth, dest_ebb) in dest_ebbs {
-                        builder.switch_to_block(dest_ebb);
+                        builder.switch_to_block(dest_ebb, &[]);
                         builder.seal_block(dest_ebb);
                         let real_dest_ebb = control_stack[control_stack.len() - 1 -
                         (depth as usize)]

@@ -22,13 +22,13 @@ pub fn f64_translation(x: wasmparser::Ieee64) -> cretonne::ir::immediates::Ieee6
     cretonne::ir::immediates::Ieee64::new(unsafe { mem::transmute(x.bits()) })
 }
 
-pub fn return_values_count(ty: wasmparser::Type) -> usize {
+pub fn return_values_types(ty: wasmparser::Type) -> Result<Vec<cretonne::ir::Type>, ()> {
     match ty {
-        wasmparser::Type::EmptyBlockType => 0,
-        wasmparser::Type::I32 => 1,
-        wasmparser::Type::F32 => 1,
-        wasmparser::Type::I64 => 1,
-        wasmparser::Type::F64 => 1,
+        wasmparser::Type::EmptyBlockType => Ok(Vec::new()),
+        wasmparser::Type::I32 => Ok(vec![cretonne::ir::types::I32]),
+        wasmparser::Type::F32 => Ok(vec![cretonne::ir::types::F32]),
+        wasmparser::Type::I64 => Ok(vec![cretonne::ir::types::I64]),
+        wasmparser::Type::F64 => Ok(vec![cretonne::ir::types::F64]),
         _ => panic!("unsupported return value type"),
     }
 }
