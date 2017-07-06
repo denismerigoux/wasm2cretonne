@@ -64,6 +64,11 @@ fn main() {
                           "tests/simple.wasm",
                           "tests/stack.wast.0.wasm",
                           "tests/forward.wast.0.wasm",
+                          "tests/i32.wast.0.wasm",
+                          "tests/i64.wast.0.wasm",
+                          "tests/f32.wast.0.wasm",
+                          "tests/f64.wast.0.wasm",
+                          "tests/fac.wast.0.wasm",
                           "tests/nop.wast.0.wasm"]
             .iter()
             .map(|&s| String::from(s))

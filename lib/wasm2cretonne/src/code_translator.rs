@@ -621,16 +621,35 @@ fn translate_operator(op: &Operator,
             let arg1 = stack.pop().unwrap();
             stack.push(builder.ins().rotr(arg1, arg2));
         }
-        Operator::I32Clz | Operator::I64Clz => {
+        Operator::I32Clz => {
             let arg = stack.pop().unwrap();
             let val = builder.ins().clz(arg);
             stack.push(builder.ins().sextend(I32, val));
         }
-        Operator::I32Popcnt |
-        Operator::I64Popcnt => {
+        Operator::I64Clz => {
+            let arg = stack.pop().unwrap();
+            let val = builder.ins().clz(arg);
+            stack.push(builder.ins().sextend(I64, val));
+        }
+        Operator::I32Ctz => {
+            let val = stack.pop().unwrap();
+            let short_res = builder.ins().ctz(val);
+            stack.push(builder.ins().sextend(I32, short_res));
+        }
+        Operator::I64Ctz => {
+            let val = stack.pop().unwrap();
+            let short_res = builder.ins().ctz(val);
+            stack.push(builder.ins().sextend(I64, short_res));
+        }
+        Operator::I32Popcnt => {
             let arg = stack.pop().unwrap();
             let val = builder.ins().popcnt(arg);
             stack.push(builder.ins().sextend(I32, val));
+        }
+        Operator::I64Popcnt => {
+            let arg = stack.pop().unwrap();
+            let val = builder.ins().popcnt(arg);
+            stack.push(builder.ins().sextend(I64, val));
         }
         Operator::F32Add | Operator::F64Add => {
             let arg2 = stack.pop().unwrap();
@@ -673,6 +692,41 @@ fn translate_operator(op: &Operator,
             let arg2 = stack.pop().unwrap();
             let arg1 = stack.pop().unwrap();
             stack.push(builder.ins().udiv(arg1, arg2));
+        }
+        Operator::F32Sqrt |
+        Operator::F64Sqrt => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().sqrt(arg));
+        }
+        Operator::F32Min | Operator::F64Min => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fmin(arg1, arg2));
+        }
+        Operator::F32Max | Operator::F64Max => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fmax(arg1, arg2));
+        }
+        Operator::F32Ceil |
+        Operator::F64Ceil => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().ceil(arg));
+        }
+        Operator::F32Floor |
+        Operator::F64Floor => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().floor(arg));
+        }
+        Operator::F32Trunc |
+        Operator::F64Trunc => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().trunc(arg));
+        }
+        Operator::F32Nearest |
+        Operator::F64Nearest => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().nearest(arg));
         }
         Operator::I32RemS |
         Operator::I64RemS => {
@@ -820,11 +874,6 @@ fn translate_operator(op: &Operator,
         Operator::I32TruncSF32 => {
             let val = stack.pop().unwrap();
             stack.push(builder.ins().fcvt_to_sint(I32, val));
-        }
-        Operator::I32Ctz | Operator::I64Ctz => {
-            let val = stack.pop().unwrap();
-            let short_res = builder.ins().ctz(val);
-            stack.push(builder.ins().sextend(I32, short_res));
         }
         _ => panic!(format!("Unimplemted: {:?}", op)),
     }
