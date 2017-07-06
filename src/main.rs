@@ -56,8 +56,15 @@ fn main() {
                           "tests/call.wast.0.wasm",
                           "tests/if.wast.0.wasm",
                           "tests/br.wast.0.wasm",
-                          "tests/nop.wast.0.wasm",
-                          "tests/return.wast.0.wasm"]
+                          "tests/return.wast.0.wasm",
+                          "tests/break-drop.wast.0.wasm",
+                          "tests/unwind.wast.0.wasm",
+                          "tests/unreachable.wast.0.wasm",
+                          "tests/set_local.wast.0.wasm",
+                          "tests/simple.wasm",
+                          "tests/stack.wast.0.wasm",
+                          "tests/forward.wast.0.wasm",
+                          "tests/nop.wast.0.wasm"]
             .iter()
             .map(|&s| String::from(s))
             .collect();

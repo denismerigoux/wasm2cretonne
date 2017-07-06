@@ -184,7 +184,8 @@ pub fn translate_function_body(parser: &mut Parser,
                            });
         loop {
             let parser_state = parser.read();
-            // println!("Now translating: {:?} ({},{}), stack: {:?}",
+            // println!("{}\nNow translating: {:?} ({},{}), stack: {:?}",
+            //          builder.display(),
             //          parser_state,
             //          state.real_unreachable_stack_depth,
             //          state.phantom_unreachable_stack_depth,
@@ -282,15 +283,21 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
         // Because the function has an implicit block as body, we need to explicitely close it
-        if !state.last_inst_return && (!builder.is_pristine() || !builder.is_unreachable()) {
-            builder.ins().return_(stack.as_slice());
+        if !state.last_inst_return && !builder.is_filled() &&
+           (!builder.is_unreachable() || !builder.is_pristine()) {
+            let cut_index = stack.len() - sig.return_types.len();
+            let return_vals = stack.split_off(cut_index);
+            builder.ins().return_(return_vals.as_slice());
         }
         let frame = control_stack.pop().unwrap();
         builder.switch_to_block(frame.following_code(), frame.return_values());
         builder.seal_block(frame.following_code());
         if !builder.is_unreachable() {
+            stack.truncate(frame.original_stack_size());
             stack.extend_from_slice(builder.ebb_args(frame.following_code()));
-            builder.ins().return_(stack.as_slice());
+            let cut_index = stack.len() - sig.return_types.len();
+            let return_vals = stack.split_off(cut_index);
+            builder.ins().return_(return_vals.as_slice());
         }
     }
     // TODO: remove the verification in production
@@ -321,293 +328,6 @@ fn translate_operator(op: &Operator,
         Operator::SetLocal { local_index } => {
             let val = stack.pop().unwrap();
             builder.def_var(Local(local_index), val);
-        }
-        Operator::I32Const { value } => stack.push(builder.ins().iconst(I32, value as i64)),
-        Operator::I64Const { value } => stack.push(builder.ins().iconst(I64, value)),
-        Operator::I32Add => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().iadd(arg1, arg2));
-        }
-        Operator::I64Add => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().iadd(arg1, arg2));
-        }
-        Operator::F32Add => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fadd(arg1, arg2));
-        }
-        Operator::F64Add => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fadd(arg1, arg2));
-        }
-        Operator::I32Sub => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().isub(arg1, arg2));
-        }
-        Operator::I64Sub => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().isub(arg1, arg2));
-        }
-        Operator::F32Sub => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fsub(arg1, arg2));
-        }
-        Operator::F64Sub => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fsub(arg1, arg2));
-        }
-        Operator::I32Mul => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().imul(arg1, arg2));
-        }
-        Operator::I64Mul => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().imul(arg1, arg2));
-        }
-        Operator::F32Mul => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fmul(arg1, arg2));
-        }
-        Operator::F64Mul => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fmul(arg1, arg2));
-        }
-        Operator::F32Div => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fdiv(arg1, arg2));
-        }
-        Operator::F64Div => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            stack.push(builder.ins().fdiv(arg1, arg2));
-        }
-        Operator::I32LtS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedLessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32LtU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64LtS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedLessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64LtU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32LeS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedLessThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32LeU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder
-                .ins()
-                .icmp(IntCC::UnsignedLessThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64LeS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedLessThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64LeU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder
-                .ins()
-                .icmp(IntCC::UnsignedLessThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32GtS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedGreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32GtU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::UnsignedGreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64GtS => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::SignedGreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64GtU => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::UnsignedGreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Lt => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F64Lt => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32Eqz => {
-            let arg = stack.pop().unwrap();
-            let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64Eqz => {
-            let arg = stack.pop().unwrap();
-            let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32Eq => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::Equal, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64Eq => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::Equal, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Eq => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F64Eq => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I32Ne => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::NotEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::I64Ne => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().icmp(IntCC::NotEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Ne => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::NotEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F64Ne => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::NotEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Neg => {
-            let arg = stack.pop().unwrap();
-            stack.push(builder.ins().fneg(arg));
-        }
-        Operator::F64Neg => {
-            let arg = stack.pop().unwrap();
-            stack.push(builder.ins().fneg(arg));
-        }
-        Operator::F32Gt => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F64Gt => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Ge => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F64Ge => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
-        Operator::F32Const { value } => {
-            stack.push(builder.ins().f32const(f32_translation(value)));
-        }
-        Operator::F64Const { value } => {
-            stack.push(builder.ins().f64const(f64_translation(value)));
-        }
-        Operator::F64ConvertUI64 => {
-            let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_uint(F64, val));
-        }
-        Operator::F64ConvertUI32 => {
-            let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_uint(F64, val));
-        }
-        Operator::F64ConvertSI64 => {
-            let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_sint(F64, val));
-        }
-        Operator::F64PromoteF32 => {
-            let val = stack.pop().unwrap();
-            stack.push(builder.ins().fpromote(F64, val));
-        }
-        Operator::F64ConvertSI32 => {
-            let val = stack.pop().unwrap();
-            stack.push(builder.ins().fcvt_from_sint(F64, val));
-        }
-        Operator::I32Ctz => {
-            let val = stack.pop().unwrap();
-            let short_res = builder.ins().ctz(val);
-            stack.push(builder.ins().sextend(I32, short_res));
-
-        }
-        Operator::I64Ctz => {
-            let val = stack.pop().unwrap();
-            let short_res = builder.ins().ctz(val);
-            stack.push(builder.ins().sextend(I32, short_res));
         }
         Operator::Drop => {
             stack.pop();
@@ -720,6 +440,7 @@ fn translate_operator(op: &Operator,
                 ControlStackFrame::Loop { header, .. } => builder.seal_block(header),
                 _ => {}
             }
+            stack.truncate(frame.original_stack_size());
             stack.extend_from_slice(builder.ebb_args(frame.following_code()));
         }
         Operator::Br { relative_depth } => {
@@ -848,6 +569,262 @@ fn translate_operator(op: &Operator,
         }
         Operator::GrowMemory { .. } => {
             //TODO: translate this with runtime
+        }
+        Operator::I32Const { value } => stack.push(builder.ins().iconst(I32, value as i64)),
+        Operator::I64Const { value } => stack.push(builder.ins().iconst(I64, value)),
+        Operator::I32Add | Operator::I64Add => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().iadd(arg1, arg2));
+        }
+        Operator::I32And | Operator::I64And => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().band(arg1, arg2));
+        }
+        Operator::I32Or | Operator::I64Or => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().bor(arg1, arg2));
+        }
+        Operator::I32Xor | Operator::I64Xor => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().bxor(arg1, arg2));
+        }
+        Operator::I32Shl | Operator::I64Shl => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().ishl(arg1, arg2));
+        }
+        Operator::I32ShrS |
+        Operator::I64ShrS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().sshr(arg1, arg2));
+        }
+        Operator::I32ShrU |
+        Operator::I64ShrU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().ushr(arg1, arg2));
+        }
+        Operator::I32Rotl |
+        Operator::I64Rotl => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().rotl(arg1, arg2));
+        }
+        Operator::I32Rotr |
+        Operator::I64Rotr => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().rotr(arg1, arg2));
+        }
+        Operator::I32Clz | Operator::I64Clz => {
+            let arg = stack.pop().unwrap();
+            let val = builder.ins().clz(arg);
+            stack.push(builder.ins().sextend(I32, val));
+        }
+        Operator::I32Popcnt |
+        Operator::I64Popcnt => {
+            let arg = stack.pop().unwrap();
+            let val = builder.ins().popcnt(arg);
+            stack.push(builder.ins().sextend(I32, val));
+        }
+        Operator::F32Add | Operator::F64Add => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fadd(arg1, arg2));
+        }
+        Operator::I32Sub | Operator::I64Sub => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().isub(arg1, arg2));
+        }
+        Operator::F32Sub | Operator::F64Sub => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fsub(arg1, arg2));
+        }
+        Operator::I32Mul | Operator::I64Mul => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().imul(arg1, arg2));
+        }
+        Operator::F32Mul | Operator::F64Mul => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fmul(arg1, arg2));
+        }
+        Operator::F32Div | Operator::F64Div => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fdiv(arg1, arg2));
+        }
+        Operator::I32DivS |
+        Operator::I64DivS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().sdiv(arg1, arg2));
+        }
+        Operator::I32DivU |
+        Operator::I64DivU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().udiv(arg1, arg2));
+        }
+        Operator::I32RemS |
+        Operator::I64RemS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().srem(arg1, arg2));
+        }
+        Operator::I32RemU |
+        Operator::I64RemU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().urem(arg1, arg2));
+        }
+        Operator::I32LtS | Operator::I64LtS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedLessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32LtU | Operator::I64LtU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::UnsignedLessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32LeS | Operator::I64LeS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32LeU | Operator::I64LeU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32GtS | Operator::I64GtS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::SignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32GtU | Operator::I64GtU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::UnsignedGreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32GeS | Operator::I64GeS => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder
+                .ins()
+                .icmp(IntCC::SignedGreaterThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32GeU | Operator::I64GeU => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Lt | Operator::F64Lt => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32Eqz | Operator::I64Eqz => {
+            let arg = stack.pop().unwrap();
+            let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32Eq | Operator::I64Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::Equal, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Eq | Operator::F64Eq => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::Equal, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::I32Ne | Operator::I64Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().icmp(IntCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Ne | Operator::F64Ne => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::NotEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Neg | Operator::F64Neg => {
+            let arg = stack.pop().unwrap();
+            stack.push(builder.ins().fneg(arg));
+        }
+        Operator::F32Gt | Operator::F64Gt => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::GreaterThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Ge | Operator::F64Ge => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Const { value } => {
+            stack.push(builder.ins().f32const(f32_translation(value)));
+        }
+        Operator::F64Const { value } => {
+            stack.push(builder.ins().f64const(f64_translation(value)));
+        }
+        Operator::F64ConvertUI64 |
+        Operator::F64ConvertUI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_from_uint(F64, val));
+        }
+        Operator::F64ConvertSI64 |
+        Operator::F64ConvertSI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_from_sint(F64, val));
+        }
+        Operator::F64PromoteF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fpromote(F64, val));
+        }
+        Operator::I64TruncSF64 |
+        Operator::I64TruncSF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_to_sint(I64, val));
+        }
+        Operator::I32TruncSF64 |
+        Operator::I32TruncSF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_to_sint(I32, val));
+        }
+        Operator::I32Ctz | Operator::I64Ctz => {
+            let val = stack.pop().unwrap();
+            let short_res = builder.ins().ctz(val);
+            stack.push(builder.ins().sextend(I32, short_res));
         }
         _ => panic!(format!("Unimplemted: {:?}", op)),
     }
