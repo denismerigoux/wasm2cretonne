@@ -1,4 +1,4 @@
-use translation_utils::type_to_type;
+use translation_utils::{type_to_type, Memory};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder};
@@ -102,4 +102,22 @@ pub fn parse_export_section(parser: &mut Parser)
         };
     }
     Ok(exports)
+}
+
+/// Retrieves the size and maximum fields of memories from the memory section
+pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionParsingError> {
+    let mut memories: Vec<Memory> = Vec::new();
+    loop {
+        match *parser.read() {
+            ParserState::MemorySectionEntry(ref ty) => {
+                memories.push(Memory {
+                                  size: ty.limits.initial,
+                                  maximum: ty.limits.maximum,
+                              })
+            }
+            ParserState::EndSection => break,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(memories)
 }

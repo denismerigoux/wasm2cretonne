@@ -2,6 +2,14 @@ use wasmparser;
 use cretonne;
 use std::mem;
 
+/// Struct that models the Wasm linear memory
+#[derive(Debug,Clone,Copy)]
+pub struct Memory {
+    pub size: u32,
+    pub maximum: Option<u32>,
+}
+
+
 /// Helper function translating wasmparser types to Cretonne types when possible.
 pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
     match *ty {

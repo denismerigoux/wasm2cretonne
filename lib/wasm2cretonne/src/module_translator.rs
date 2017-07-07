@@ -1,7 +1,7 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
-                          parse_function_section, parse_export_section};
-use translation_utils::type_to_type;
+                          parse_function_section, parse_export_section, parse_memory_section};
+use translation_utils::{type_to_type, Memory};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cretonne::ir::frontend::ILBuilder;
@@ -13,21 +13,22 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
         ParserState::BeginWasm { .. } => {}
         _ => panic!("modules should begin properly"),
     }
-    match *parser.read() {
-        ParserState::BeginSection { code: SectionCode::Type, .. } => (),
-        _ => return Err(String::from("no function signature in the module")),
-    };
-    let signatures = match parse_function_signatures(&mut parser) {
-        Ok(signatures) => signatures,
-        Err(SectionParsingError::WrongSectionContent()) => {
-            return Err(String::from("wrong content in the type section"))
-        }
-    };
+    let mut signatures = None;
     let mut functions: Option<Vec<u32>> = None;
     let mut exports: Option<HashMap<u32, String>> = None;
+    let mut memories: Option<Vec<Memory>> = None;
     let mut next_input = ParserInput::Default;
     loop {
         match *parser.read_with_input(next_input) {
+            ParserState::BeginSection { code: SectionCode::Type, .. } => {
+                match parse_function_signatures(&mut parser) {
+                    Ok(sigs) => signatures = Some(sigs),
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the type section"))
+                    }
+                };
+                next_input = ParserInput::Default;
+            }
             ParserState::BeginSection { code: SectionCode::Import, .. } => {
                 match parse_import_section(&mut parser) {
                     Ok(imp) => functions = Some(imp),
@@ -55,7 +56,13 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                 next_input = ParserInput::SkipSection;
             }
             ParserState::BeginSection { code: SectionCode::Memory, .. } => {
-                next_input = ParserInput::SkipSection;
+                match parse_memory_section(&mut parser) {
+                    Ok(mems) => memories = Some(mems),
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the memory section"))
+                    }
+                }
+                next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Global, .. } => {
                 next_input = ParserInput::SkipSection;
@@ -75,6 +82,10 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
             ParserState::BeginSection { code: SectionCode::Element, .. } => {
                 next_input = ParserInput::SkipSection;
             }
+            ParserState::BeginSection { code: SectionCode::Data, .. } => {
+                // TODO: handle it with runtime
+                next_input = ParserInput::SkipSection;
+            }
             ParserState::BeginSection { code: SectionCode::Code, .. } => {
                 // The code section begins
                 break;
@@ -82,17 +93,20 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
             ParserState::EndSection => {
                 next_input = ParserInput::Default;
             }
-            ParserState::EndWasm => return Err(String::from("module ended with no code")),
+            ParserState::EndWasm => return Ok(Vec::new()),
             _ => return Err(String::from("wrong content in the preamble")),
         };
     }
     // At this point we've entered the code section
     // First we check that we have all that is necessary to translate a function.
+    let signatures = match signatures {
+        None => Vec::new(),
+        Some(sigs) => sigs,
+    };
     let functions = match functions {
         None => return Err(String::from("missing a function section")),
         Some(functions) => functions,
     };
-
     let mut function_index: u32 = 0;
     let mut il_functions: Vec<Function> = Vec::new();
     let mut il_builder = ILBuilder::new();
@@ -121,6 +135,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                                       &exports,
                                       &signatures,
                                       &functions,
+                                      memories.clone(),
                                       &mut il_builder) {
             Ok(il_func) => il_functions.push(il_func),
             Err(s) => return Err(s),

@@ -69,6 +69,25 @@ fn main() {
                           "tests/f32.wast.0.wasm",
                           "tests/f64.wast.0.wasm",
                           "tests/fac.wast.0.wasm",
+                          "tests/memory.wast.0.wasm",
+                          "tests/memory.wast.1.wasm",
+                          "tests/memory.wast.2.wasm",
+                          "tests/memory.wast.3.wasm",
+                          "tests/memory.wast.4.wasm",
+                          "tests/memory.wast.5.wasm",
+                          "tests/memory.wast.6.wasm",
+                          "tests/memory.wast.7.wasm",
+                          "tests/memory.wast.8.wasm",
+                          "tests/memory.wast.9.wasm",
+                          "tests/memory.wast.10.wasm",
+                          "tests/memory.wast.13.wasm",
+                          "tests/memory.wast.14.wasm",
+                          "tests/memory.wast.15.wasm",
+                          "tests/memory.wast.28.wasm",
+                          "tests/memory.wast.50.wasm",
+                          "tests/memory.wast.51.wasm",
+                          "tests/memory.wast.52.wasm",
+                          "tests/memory.wast.62.wasm",
                           "tests/nop.wast.0.wasm"]
             .iter()
             .map(|&s| String::from(s))
@@ -133,7 +152,7 @@ fn pretty_print_translation(filename: &String,
                 parser_writer.write(&s)?;
                 break;
             }
-            &ParserState::EndWasm => panic!("module ended with no code"),
+            &ParserState::EndWasm => return Ok(()),
             s @ _ => parser_writer.write(&s)?,
         }
     }

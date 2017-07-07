@@ -1,13 +1,14 @@
 use cretonne::ir::{Function, Signature, Value, Type, InstBuilder, FunctionName, Ebb, FuncRef,
-                   SigRef, ExtFuncData, Inst};
+                   SigRef, ExtFuncData, Inst, MemFlags};
 use cretonne::ir::types::*;
-use cretonne::ir::immediates::{Ieee32, Ieee64};
+use cretonne::ir::immediates::{Ieee32, Ieee64, Offset32};
 use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
-use wasmparser::{Parser, ParserState, Operator, WasmDecoder};
-use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types};
+use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
+use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
+                        Memory};
 use std::collections::HashMap;
 use std::u32;
 
@@ -118,6 +119,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                exports: &Option<HashMap<u32, String>>,
                                signatures: &Vec<Signature>,
                                functions: &Vec<u32>,
+                               memories: Option<Vec<Memory>>,
                                il_builder: &mut ILBuilder<Local>)
                                -> Result<Function, String> {
     let mut func = Function::new();
@@ -136,6 +138,10 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
     }
+    let mut memory = match memories {
+        None => None,
+        Some(mems) => Some(mems[0]),
+    };
     let mut func_imports = FunctionImports::new();
     let mut stack: Vec<Value> = Vec::new();
     let mut control_stack: Vec<ControlStackFrame> = Vec::new();
@@ -211,12 +217,17 @@ pub fn translate_function_body(parser: &mut Parser,
                                     // We switch to the destination block but we don't insert
                                     // a jump instruction since the code is still unreachable
                                     let frame = control_stack.pop().unwrap();
+
                                     builder.switch_to_block(frame.following_code(), &[]);
                                     builder.seal_block(frame.following_code());
-                                    // If it is a loop we also have to seal the body loop block
                                     match frame {
+                                        // If it is a loop we also have to seal the body loop block
                                         ControlStackFrame::Loop { header, .. } => {
                                             builder.seal_block(header)
+                                        }
+                                        // If it is a if then the code after is reachable again
+                                        ControlStackFrame::If { .. } => {
+                                            state.real_unreachable_stack_depth = 1;
                                         }
                                         _ => {}
                                     }
@@ -274,6 +285,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &functions,
                                            &signatures,
                                            &exports,
+                                           &mut memory,
                                            &mut func_imports)
                     }
                 }
@@ -321,6 +333,7 @@ fn translate_operator(op: &Operator,
                       functions: &Vec<u32>,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
+                      memory: &mut Option<Memory>,
                       func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
@@ -568,7 +581,147 @@ fn translate_operator(op: &Operator,
             }
         }
         Operator::GrowMemory { .. } => {
-            //TODO: translate this with runtime
+            //TODO: translate this with runtime support
+            stack.pop().unwrap();
+        }
+        Operator::CurrentMemory { .. } => {
+            //TODO: translate this with runtime support
+            stack.push(builder.ins().iconst(I32, -1));
+        }
+        Operator::I32Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().uload8(I32, memflags, addr, memoffset))
+        }
+        Operator::I32Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().uload8(I32, memflags, addr, memoffset))
+        }
+        Operator::I32Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().sload8(I32, memflags, addr, memoffset))
+        }
+        Operator::I32Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().sload8(I32, memflags, addr, memoffset))
+        }
+        Operator::I64Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().uload8(I64, memflags, addr, memoffset))
+        }
+        Operator::I64Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().uload16(I64, memflags, addr, memoffset))
+        }
+        Operator::I64Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().sload8(I64, memflags, addr, memoffset))
+        }
+        Operator::I64Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().sload16(I64, memflags, addr, memoffset))
+        }
+        Operator::I64Load32S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().sload32(memflags, addr, memoffset))
+        }
+        Operator::I64Load32U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().uload32(memflags, addr, memoffset))
+        }
+        Operator::I32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().load(I32, memflags, addr, memoffset))
+        }
+        Operator::F32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().load(F32, memflags, addr, memoffset))
+        }
+        Operator::I64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().load(I64, memflags, addr, memoffset))
+        }
+        Operator::F64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            stack.push(builder.ins().load(F64, memflags, addr, memoffset))
+        }
+        Operator::I32Store { memory_immediate: MemoryImmediate { flags: _, offset } } |
+        Operator::I64Store { memory_immediate: MemoryImmediate { flags: _, offset } } |
+        Operator::F32Store { memory_immediate: MemoryImmediate { flags: _, offset } } |
+        Operator::F64Store { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let val = stack.pop().unwrap();
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            builder.ins().store(memflags, val, addr, memoffset);
+        }
+        Operator::I32Store8 { memory_immediate: MemoryImmediate { flags: _, offset } } |
+        Operator::I64Store8 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let val = stack.pop().unwrap();
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            builder.ins().istore8(memflags, val, addr, memoffset);
+        }
+        Operator::I32Store16 { memory_immediate: MemoryImmediate { flags: _, offset } } |
+        Operator::I64Store16 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let val = stack.pop().unwrap();
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            builder.ins().istore16(memflags, val, addr, memoffset);
+        }
+        Operator::I64Store32 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
+            memory.expect("no memory declared");
+            let val = stack.pop().unwrap();
+            let addr = stack.pop().unwrap();
+            let memflags = MemFlags::new();
+            let memoffset = Offset32::new(offset as i32);
+            builder.ins().istore32(memflags, val, addr, memoffset);
         }
         Operator::I32Const { value } => stack.push(builder.ins().iconst(I32, value as i64)),
         Operator::I64Const { value } => stack.push(builder.ins().iconst(I64, value)),
@@ -874,6 +1027,10 @@ fn translate_operator(op: &Operator,
         Operator::I32TruncSF32 => {
             let val = stack.pop().unwrap();
             stack.push(builder.ins().fcvt_to_sint(I32, val));
+        }
+        Operator::F64ReinterpretI64 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().bitcast(F64, val));
         }
         _ => panic!(format!("Unimplemted: {:?}", op)),
     }
