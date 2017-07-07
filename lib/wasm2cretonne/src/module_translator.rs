@@ -1,7 +1,7 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section};
-use translation_utils::{type_to_type, Memory};
+use translation_utils::{type_to_type, Memory, Import};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cretonne::ir::frontend::ILBuilder;
@@ -32,9 +32,30 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
             }
             ParserState::BeginSection { code: SectionCode::Import, .. } => {
                 match parse_import_section(&mut parser) {
-                    Ok(imp) => {
-                        function_index = imp.len() as u32;
-                        functions = Some(imp)
+                    Ok(imps) => {
+                        for import in imps {
+                            match import {
+                                Import::Function { sig_index } => {
+                                    functions = match functions {
+                                        None => Some(vec![sig_index]),
+                                        Some(mut funcs) => {
+                                            funcs.push(sig_index);
+                                            Some(funcs)
+                                        }
+                                    };
+                                    function_index += 1;
+                                }
+                                Import::Memory(mem) => {
+                                    memories = match memories {
+                                        None => Some(vec![mem]),
+                                        Some(mut mems) => {
+                                            mems.push(mem);
+                                            Some(mems)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the import section"))
@@ -75,7 +96,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                 match parse_export_section(&mut parser) {
                     Ok(exps) => exports = Some(exps),
                     Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the function section"))
+                        return Err(String::from("wrong content in the export section"))
                     }
                 }
                 next_input = ParserInput::Default;

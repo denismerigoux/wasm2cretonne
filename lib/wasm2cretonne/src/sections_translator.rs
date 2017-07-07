@@ -1,7 +1,8 @@
-use translation_utils::{type_to_type, Memory};
+use translation_utils::{type_to_type, Memory, Import};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
-use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder};
+use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
+                 MemoryType};
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;
@@ -54,15 +55,22 @@ pub fn parse_function_signatures(parser: &mut Parser)
 }
 
 /// Retrieves the imports from the imports section of the binary.
-pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
+pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionParsingError> {
     let mut imports = Vec::new();
     loop {
         match *parser.read() {
             ParserState::ImportSectionEntry {
                 ty: ImportSectionEntryType::Function(sig), ..
-            } => imports.push(sig),
+            } => imports.push(Import::Function { sig_index: sig }),
             ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Table(..), .. } => {}
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Memory(..), .. } => {}
+            ParserState::ImportSectionEntry {
+                ty: ImportSectionEntryType::Memory(MemoryType { limits: ref memlimits }), ..
+            } => {
+                imports.push(Import::Memory(Memory {
+                                                size: memlimits.initial,
+                                                maximum: memlimits.maximum,
+                                            }))
+            }
             ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Global(..), .. } => {}
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
@@ -92,11 +100,22 @@ pub fn parse_export_section(parser: &mut Parser)
         match *parser.read() {
             ParserState::ExportSectionEntry {
                 field,
-                kind: ExternalKind::Function,
+                ref kind,
                 index,
-            } => exports.insert(index, String::from(from_utf8(field).unwrap())),
+            } => {
+                match kind {
+                    &ExternalKind::Function => {
+                        exports.insert(index, String::from(from_utf8(field).unwrap()));
+                        ()
+                    }
+                    _ => (),//TODO: deal with other times of exports
+                }
+            }
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("{:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
     }
     Ok(exports)

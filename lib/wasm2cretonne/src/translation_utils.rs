@@ -9,6 +9,12 @@ pub struct Memory {
     pub maximum: Option<u32>,
 }
 
+/// Struct that modles Wasm imports
+pub enum Import {
+    Function { sig_index: u32 },
+    Memory(Memory),
+}
+
 
 /// Helper function translating wasmparser types to Cretonne types when possible.
 pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
