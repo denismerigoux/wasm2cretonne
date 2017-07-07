@@ -18,6 +18,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
     let mut exports: Option<HashMap<u32, String>> = None;
     let mut memories: Option<Vec<Memory>> = None;
     let mut next_input = ParserInput::Default;
+    let mut function_index: u32 = 0;
     loop {
         match *parser.read_with_input(next_input) {
             ParserState::BeginSection { code: SectionCode::Type, .. } => {
@@ -31,7 +32,10 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
             }
             ParserState::BeginSection { code: SectionCode::Import, .. } => {
                 match parse_import_section(&mut parser) {
-                    Ok(imp) => functions = Some(imp),
+                    Ok(imp) => {
+                        function_index = imp.len() as u32;
+                        functions = Some(imp)
+                    }
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the import section"))
                     }
@@ -107,7 +111,6 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
         None => return Err(String::from("missing a function section")),
         Some(functions) => functions,
     };
-    let mut function_index: u32 = 0;
     let mut il_functions: Vec<Function> = Vec::new();
     let mut il_builder = ILBuilder::new();
     loop {

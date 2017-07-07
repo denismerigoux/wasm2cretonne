@@ -94,9 +94,7 @@ pub fn parse_export_section(parser: &mut Parser)
                 field,
                 kind: ExternalKind::Function,
                 index,
-            } => {
-                exports.insert(index, String::from(from_utf8(field).unwrap()));
-            }
+            } => exports.insert(index, String::from(from_utf8(field).unwrap())),
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };

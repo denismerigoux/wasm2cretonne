@@ -9,7 +9,7 @@ use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
                         Memory};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::u32;
 
 // An opaque reference to local variable in wasm.
@@ -94,6 +94,7 @@ struct TranslationState {
     last_inst_return: bool,
     phantom_unreachable_stack_depth: usize,
     real_unreachable_stack_depth: usize,
+    br_table_reachable_ebbs: HashSet<Ebb>,
 }
 
 struct FunctionImports {
@@ -177,6 +178,7 @@ pub fn translate_function_body(parser: &mut Parser,
             last_inst_return: false,
             phantom_unreachable_stack_depth: 0,
             real_unreachable_stack_depth: 0,
+            br_table_reachable_ebbs: HashSet::new(),
         };
         // We initialize the control stack with the implicit function block
         let end_ebb = builder.create_ebb();
@@ -230,6 +232,11 @@ pub fn translate_function_body(parser: &mut Parser,
                                             state.real_unreachable_stack_depth = 1;
                                         }
                                         _ => {}
+                                    }
+                                    if state
+                                           .br_table_reachable_ebbs
+                                           .contains(&frame.following_code()) {
+                                        state.real_unreachable_stack_depth = 1;
                                     }
                                     // Now we have to split off the stack the values not used
                                     // by unreachable code that hasn't been translated
@@ -341,6 +348,10 @@ fn translate_operator(op: &Operator,
         Operator::SetLocal { local_index } => {
             let val = stack.pop().unwrap();
             builder.def_var(Local(local_index), val);
+        }
+        Operator::TeeLocal { local_index } => {
+            let val = stack.last().unwrap();
+            builder.def_var(Local(local_index), *val);
         }
         Operator::Drop => {
             stack.pop();
@@ -503,6 +514,7 @@ fn translate_operator(op: &Operator,
                         let ebb = control_stack[control_stack.len() - 1 - (*depth as usize)]
                             .br_destination();
                         builder.insert_jump_table_entry(jt, index, ebb);
+                        state.br_table_reachable_ebbs.insert(ebb);
                     }
                     builder.ins().br_table(val, jt);
                 }
@@ -544,6 +556,7 @@ fn translate_operator(op: &Operator,
                         (depth as usize)]
                                 .br_destination();
                         builder.ins().jump(real_dest_ebb, jump_args.as_slice());
+                        state.br_table_reachable_ebbs.insert(dest_ebb);
                     }
                     state.real_unreachable_stack_depth = 1 + min_depth as usize;
                 } else {
@@ -947,12 +960,6 @@ fn translate_operator(op: &Operator,
                 .icmp(IntCC::UnsignedGreaterThanOrEqual, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
-        Operator::F32Lt | Operator::F64Lt => {
-            let arg2 = stack.pop().unwrap();
-            let arg1 = stack.pop().unwrap();
-            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
-            stack.push(builder.ins().bint(I32, val));
-        }
         Operator::I32Eqz | Operator::I64Eqz => {
             let arg = stack.pop().unwrap();
             let val = builder.ins().icmp_imm(IntCC::Equal, arg, 0);
@@ -998,11 +1005,45 @@ fn translate_operator(op: &Operator,
             let val = builder.ins().fcmp(FloatCC::GreaterThanOrEqual, arg1, arg2);
             stack.push(builder.ins().bint(I32, val));
         }
+        Operator::F32Lt | Operator::F64Lt => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::LessThan, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
+        Operator::F32Le | Operator::F64Le => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            let val = builder.ins().fcmp(FloatCC::LessThanOrEqual, arg1, arg2);
+            stack.push(builder.ins().bint(I32, val));
+        }
         Operator::F32Const { value } => {
             stack.push(builder.ins().f32const(f32_translation(value)));
         }
         Operator::F64Const { value } => {
             stack.push(builder.ins().f64const(f64_translation(value)));
+        }
+        Operator::F32Abs | Operator::F64Abs => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fabs(val));
+        }
+        Operator::F32Copysign |
+        Operator::F64Copysign => {
+            let arg2 = stack.pop().unwrap();
+            let arg1 = stack.pop().unwrap();
+            stack.push(builder.ins().fcopysign(arg1, arg2));
+        }
+        Operator::I64ExtendSI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().sextend(I64, val));
+        }
+        Operator::I64ExtendUI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().uextend(I64, val));
+        }
+        Operator::I32WrapI64 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().ireduce(I32, val));
         }
         Operator::F64ConvertUI64 |
         Operator::F64ConvertUI32 => {
@@ -1014,9 +1055,23 @@ fn translate_operator(op: &Operator,
             let val = stack.pop().unwrap();
             stack.push(builder.ins().fcvt_from_sint(F64, val));
         }
+        Operator::F32ConvertSI64 |
+        Operator::F32ConvertSI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_from_sint(F32, val));
+        }
+        Operator::F32ConvertUI64 |
+        Operator::F32ConvertUI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_from_uint(F32, val));
+        }
         Operator::F64PromoteF32 => {
             let val = stack.pop().unwrap();
             stack.push(builder.ins().fpromote(F64, val));
+        }
+        Operator::F32DemoteF64 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fdemote(F32, val));
         }
         Operator::I64TruncSF64 |
         Operator::I64TruncSF32 => {
@@ -1028,9 +1083,31 @@ fn translate_operator(op: &Operator,
             let val = stack.pop().unwrap();
             stack.push(builder.ins().fcvt_to_sint(I32, val));
         }
+        Operator::I64TruncUF64 |
+        Operator::I64TruncUF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_to_uint(I64, val));
+        }
+        Operator::I32TruncUF64 |
+        Operator::I32TruncUF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().fcvt_to_uint(I32, val));
+        }
+        Operator::F32ReinterpretI32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().bitcast(F32, val));
+        }
         Operator::F64ReinterpretI64 => {
             let val = stack.pop().unwrap();
             stack.push(builder.ins().bitcast(F64, val));
+        }
+        Operator::I32ReinterpretF32 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().bitcast(I32, val));
+        }
+        Operator::I64ReinterpretF64 => {
+            let val = stack.pop().unwrap();
+            stack.push(builder.ins().bitcast(I64, val));
         }
         _ => panic!(format!("Unimplemted: {:?}", op)),
     }

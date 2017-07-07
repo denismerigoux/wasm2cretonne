@@ -6,6 +6,7 @@ extern crate docopt;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate term;
 
 use wasm2cretonne::module_translator::translate_module;
 use cretonne::ir::Function;
@@ -15,8 +16,9 @@ use wasmtext::Writer;
 use std::fs::File;
 use std::io::{BufReader, Error, stdout, stdin};
 use std::io::prelude::*;
-use std::process::Command;
 use docopt::Docopt;
+use std::fs;
+use std::path::Path;
 
 const USAGE: &str = "
 Wasm to Cretonne IL translation utility
@@ -32,7 +34,7 @@ Options:
     --version           print the Cretonne version
 ";
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Args {
     cmd_all: bool,
     arg_file: Vec<String>,
@@ -69,67 +71,111 @@ fn main() {
                           "tests/f32.wast.0.wasm",
                           "tests/f64.wast.0.wasm",
                           "tests/fac.wast.0.wasm",
-                          "tests/memory.wast.0.wasm",
-                          "tests/memory.wast.1.wasm",
-                          "tests/memory.wast.2.wasm",
-                          "tests/memory.wast.3.wasm",
-                          "tests/memory.wast.4.wasm",
-                          "tests/memory.wast.5.wasm",
-                          "tests/memory.wast.6.wasm",
-                          "tests/memory.wast.7.wasm",
-                          "tests/memory.wast.8.wasm",
-                          "tests/memory.wast.9.wasm",
-                          "tests/memory.wast.10.wasm",
-                          "tests/memory.wast.13.wasm",
-                          "tests/memory.wast.14.wasm",
-                          "tests/memory.wast.15.wasm",
-                          "tests/memory.wast.28.wasm",
-                          "tests/memory.wast.50.wasm",
-                          "tests/memory.wast.51.wasm",
-                          "tests/memory.wast.52.wasm",
-                          "tests/memory.wast.62.wasm",
-                          "tests/nop.wast.0.wasm"]
-            .iter()
-            .map(|&s| String::from(s))
-            .collect();
+                          "tests/conversions.wast.0.wasm",
+                          "tests/endianness.wast.0.wasm",
+                          "tests/f32_bitwise.wast.0.wasm",
+                          "tests/f32_cmp.wast.0.wasm",
+                          "tests/f64_bitwise.wast.0.wasm",
+                          "tests/f64_cmp.wast.0.wasm",
+                          "tests/float_literals.wast.0.wasm",
+                          "tests/int_literals.wast.0.wasm",
+                          "tests/memory_redundancy.wast.0.wasm",
+                          "tests/memory_trap.wast.0.wasm",
+                          "tests/memory_trap.wast.1.wasm",
+                          "tests/names.wast.0.wasm",
+                          "tests/names.wast.1.wasm",
+                          "tests/select.wast.0.wasm",
+                          "tests/skip-stack-guard-page.wast.0.wasm",
+                          "tests/stack.wast.0.wasm",
+                          "tests/switch.wast.0.wasm",
+                          "tests/float_misc.wast.0.wasm",
+                          "tests/nop.wast.0.wasm"];
+    let mut test_files: Vec<String> = test_files.iter().map(|&s| String::from(s)).collect();
+    for i in 0..96 {
+        test_files.push(format!("tests/float_exprs.wast.{}.wasm", i));
+    }
+    for i in 0..6 {
+        test_files.push(format!("tests/float_memory.wast.{}.wasm", i));
+    }
+    for i in 0..19 {
+        test_files.push(format!("tests/int_exprs.wast.{}.wasm", i));
+    }
+    for i in vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 28, 50, 51, 52, 62] {
+        test_files.push(format!("tests/memory.wast.{}.wasm", i));
+    }
+    for i in 3..9 {
+        test_files.push(format!("tests/start.wast.{}.wasm", i));
+    }
+    for i in 0..4 {
+        test_files.push(format!("tests/traps.wast.{}.wasm", i));
+    }
+    for i in vec![0] {
+        test_files.push(format!("tests/func_ptrs.wast.{}.wasm", i));
+    }
 
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.help(true).version(Some(format!("0.0.0"))).deserialize())
         .unwrap_or_else(|e| e.exit());
+    let mut terminal = term::stdout().unwrap();
+    let mut paths: Vec<_> = fs::read_dir("tests").unwrap().map(|r| r.unwrap()).collect();
+    paths.sort_by_key(|dir| dir.path());
 
-    let files: Vec<String>;
-    if args.cmd_all || args.arg_file.len() == 0 {
-        files = test_files;
-    } else {
-        files = args.arg_file;
-    }
-
-
-    for filename in files {
-        let path = PathBuf::from(filename.clone());
-        println!("Reading: {:?}", path.as_os_str());
-        let data = match read_wasm_file(path) {
-            Ok(data) => data,
-            Err(err) => {
-                println!("Error: {}", err);
-                return;
+    if args.cmd_all {
+        for path in paths {
+            let path = path.path();
+            let name = String::from(path.as_os_str().to_string_lossy());
+            if !test_files.contains(&name) {
+                terminal.fg(term::color::MAGENTA).unwrap();
+                print!("Not tested: ");
+                terminal.reset().unwrap();
+                println!("\"{}\"", name);
+            } else {
+                handle_module(args.flag_interactive, path, name)
             }
-        };
-        let funcs = match translate_module(&data) {
-            Ok(funcs) => funcs,
-            Err(string) => {
-                println!("Error : {}", string);
-                return;
-            }
-        };
-        if args.flag_interactive {
-            let mut writer1 = stdout();
-            let mut writer2 = stdout();
-            match pretty_print_translation(&filename, &data, &funcs, &mut writer1, &mut writer2) {
-                Err(error) => panic!(error),
-                Ok(()) => {}
-            };
         }
+    }
+    for filename in args.arg_file {
+        let path = Path::new(&filename);
+        let name = String::from(path.as_os_str().to_string_lossy());
+        handle_module(args.flag_interactive, path.to_path_buf(), name)
+    }
+}
+
+fn handle_module(interactive: bool, path: PathBuf, name: String) {
+    let mut terminal = term::stdout().unwrap();
+    terminal.fg(term::color::YELLOW).unwrap();
+    print!("Testing: ");
+    terminal.reset().unwrap();
+    print!("\"{:?}\"", name);
+    let data = match read_wasm_file(path) {
+        Ok(data) => data,
+        Err(err) => {
+            println!("Error: {}", err);
+            return;
+        }
+    };
+    let funcs = match translate_module(&data) {
+        Ok(funcs) => funcs,
+        Err(string) => {
+            terminal.fg(term::color::RED).unwrap();
+            println!(" error");
+            terminal.reset().unwrap();
+            println!("{}", string);
+            return;
+        }
+    };
+    if interactive {
+        println!();
+        let mut writer1 = stdout();
+        let mut writer2 = stdout();
+        match pretty_print_translation(&name, &data, &funcs, &mut writer1, &mut writer2) {
+            Err(error) => panic!(error),
+            Ok(()) => { }
+        };
+    } else {
+        terminal.fg(term::color::GREEN).unwrap();
+        println!(" ok");
+        terminal.reset().unwrap();
     }
 }
 
@@ -139,6 +185,7 @@ fn pretty_print_translation(filename: &String,
                             writer_wast: &mut Write,
                             writer_cretonne: &mut Write)
                             -> Result<(), Error> {
+    let mut terminal = term::stdout().unwrap();
     let mut parser = Parser::new(data.as_slice());
     let mut parser_writer = Writer::new(writer_wast);
     match parser.read() {
@@ -160,9 +207,14 @@ fn pretty_print_translation(filename: &String,
     loop {
         match parser.read() {
             s @ &ParserState::BeginFunctionBody { .. } => {
+                terminal.fg(term::color::BLUE).unwrap();
                 write!(writer_cretonne,
-                       "====== Begin function block ({}) ======\nWast ---------->\n",
+                       "====== Function No. {} of module \"{}\" ======\n",
+                       function_index,
                        filename)?;
+                terminal.fg(term::color::CYAN).unwrap();
+                write!(writer_cretonne, "Wast ---------->\n")?;
+                terminal.reset().unwrap();
                 parser_writer.write(&s)?;
             }
             s @ &ParserState::EndSection => {
@@ -187,12 +239,12 @@ fn pretty_print_translation(filename: &String,
         let mut function_string = format!("  {}", funcs[function_index].display(None));
         function_string.pop();
         let function_str = str::replace(function_string.as_str(), "\n", "\n  ");
-        write!(writer_cretonne, "Cretonne IL --->\n{}\n", function_str)?;
-        write!(writer_cretonne, "====== End function block ======\n")?;
-
+        terminal.fg(term::color::CYAN).unwrap();
+        write!(writer_cretonne, "Cretonne IL --->\n")?;
+        terminal.reset().unwrap();
+        write!(writer_cretonne, "{}\n", function_str)?;
         let mut input = String::new();
         stdin().read_line(&mut input)?;
-        Command::new("clear").status()?;
 
         function_index += 1;
     }
