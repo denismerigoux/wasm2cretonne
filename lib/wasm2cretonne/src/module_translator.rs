@@ -12,7 +12,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
         ParserState::BeginWasm { .. } => {}
-        _ => panic!("modules should begin properly"),
+        ref s @ _ => panic!("modules should begin properly: {:?}", s),
     }
     let mut signatures = None;
     let mut functions: Option<Vec<u32>> = None;

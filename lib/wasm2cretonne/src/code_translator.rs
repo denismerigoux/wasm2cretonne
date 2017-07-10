@@ -193,8 +193,7 @@ pub fn translate_function_body(parser: &mut Parser,
                            });
         loop {
             let parser_state = parser.read();
-            // println!("{}\nNow translating: {:?} ({},{}), stack: {:?}",
-            //          builder.display(),
+            // println!("Now translating: {:?} ({},{}), stack: {:?}",
             //          parser_state,
             //          state.real_unreachable_stack_depth,
             //          state.phantom_unreachable_stack_depth,
@@ -472,7 +471,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::End => {
             let frame = control_stack.pop().unwrap();
-            if !builder.is_unreachable() {
+            if !builder.is_unreachable() || !builder.is_pristine() {
                 let cut_index = stack.len() - frame.return_values().len();
                 let jump_args = stack.split_off(cut_index);
                 builder
