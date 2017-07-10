@@ -1,4 +1,4 @@
-use translation_utils::{type_to_type, Memory, Import};
+use translation_utils::{type_to_type, Memory, Import, Global};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
@@ -71,7 +71,14 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                                                 maximum: memlimits.maximum,
                                             }))
             }
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Global(..), .. } => {}
+            ParserState::ImportSectionEntry {
+                ty: ImportSectionEntryType::Global(ref ty), ..
+            } => {
+                imports.push(Import::Global(Global {
+                                                ty: type_to_type(&ty.content_type).unwrap(),
+                                                mutability: ty.mutability != 0,
+                                            }));
+            }
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };
@@ -137,4 +144,22 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
         };
     }
     Ok(memories)
+}
+
+/// Retrieves the size and maximum fields of memories from the memory section
+pub fn parse_global_section(parser: &mut Parser) -> Result<Vec<Global>, SectionParsingError> {
+    let mut globals: Vec<Global> = Vec::new();
+    loop {
+        match *parser.read() {
+            ParserState::BeginGlobalSectionEntry(ref ty) => {
+                globals.push(Global {
+                                 ty: type_to_type(&ty.content_type).unwrap(),
+                                 mutability: ty.mutability != 0,
+                             });
+            }
+            ParserState::EndSection => break,
+            _ => (), // initializer expression
+        };
+    }
+    Ok(globals)
 }

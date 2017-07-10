@@ -8,7 +8,7 @@ use cretonne::entity_ref::EntityRef;
 use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
-                        Memory};
+                        Memory, Global};
 use std::collections::{HashMap, HashSet};
 use std::u32;
 
@@ -121,6 +121,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                signatures: &Vec<Signature>,
                                functions: &Vec<u32>,
                                memories: Option<Vec<Memory>>,
+                               globals: &Option<Vec<Global>>,
                                il_builder: &mut ILBuilder<Local>)
                                -> Result<Function, String> {
     let mut func = Function::new();
@@ -293,6 +294,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &signatures,
                                            &exports,
                                            &mut memory,
+                                           &globals,
                                            &mut func_imports)
                     }
                 }
@@ -341,6 +343,7 @@ fn translate_operator(op: &Operator,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
                       memory: &mut Option<Memory>,
+                      globals: &Option<Vec<Global>>,
                       func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
@@ -348,6 +351,25 @@ fn translate_operator(op: &Operator,
         Operator::SetLocal { local_index } => {
             let val = stack.pop().unwrap();
             builder.def_var(Local(local_index), val);
+        }
+        Operator::GetGlobal { global_index } => {
+            // TODO: add runtime support
+            let ref glob = match globals {
+                &None => panic!("no declared globals"),
+                &Some(ref globs) => globs.get(global_index as usize).unwrap(),
+            };
+            let val = match glob.ty {
+                I32 => builder.ins().iconst(glob.ty, -1),
+                I64 => builder.ins().iconst(glob.ty, -1),
+                F32 => builder.ins().f32const(Ieee32::new(-1.0)),
+                F64 => builder.ins().f64const(Ieee64::new(-1.0)),
+                _ => panic!("should not happen"),
+            };
+            stack.push(val);
+        }
+        Operator::SetGlobal { global_index: _ } => {
+            // TODO: add runtime support
+            stack.pop().unwrap();
         }
         Operator::TeeLocal { local_index } => {
             let val = stack.last().unwrap();
@@ -579,15 +601,35 @@ fn translate_operator(op: &Operator,
             let args_num = args_count(function_index as usize, functions, signatures);
             let cut_index = stack.len() - args_num;
             let call_args = stack.split_off(cut_index);
-            let internal_function_index = find_import(function_index as usize,
-                                                      builder,
-                                                      func_imports,
-                                                      functions,
-                                                      exports,
-                                                      signatures);
+            let internal_function_index = find_function_import(function_index as usize,
+                                                               builder,
+                                                               func_imports,
+                                                               functions,
+                                                               exports,
+                                                               signatures);
             let call_inst = builder
                 .ins()
                 .call(internal_function_index, call_args.as_slice());
+            let ret_values = builder.inst_results(call_inst);
+            for val in ret_values {
+                stack.push(*val);
+            }
+        }
+        Operator::CallIndirect {
+            index,
+            table_index: _,
+        } => {
+            // index is the index of the function's signature and table_index is the index
+            // of the table to search the function in
+            // TODO: have runtime support for tables
+            let sigref = find_signature_import(index as usize, builder, func_imports, signatures);
+            let args_num = builder.signature(sigref).unwrap().argument_types.len();
+            let val = stack.pop().unwrap();
+            let cut_index = stack.len() - args_num;
+            let call_args = stack.split_off(cut_index);
+            let call_inst = builder
+                .ins()
+                .call_indirect(sigref, val, call_args.as_slice());
             let ret_values = builder.inst_results(call_inst);
             for val in ret_values {
                 stack.push(*val);
@@ -1109,7 +1151,6 @@ fn translate_operator(op: &Operator,
             let val = stack.pop().unwrap();
             stack.push(builder.ins().bitcast(I64, val));
         }
-        _ => panic!(format!("Unimplemted: {:?}", op)),
     }
 }
 
@@ -1119,13 +1160,13 @@ fn args_count(index: usize, functions: &Vec<u32>, signatures: &Vec<Signature>) -
 
 // Given a index in the function index space, search for it in the function imports and if it is
 // not there add it to the function imports.
-fn find_import(index: usize,
-               builder: &mut FunctionBuilder<Local>,
-               func_imports: &mut FunctionImports,
-               functions: &Vec<u32>,
-               exports: &Option<HashMap<u32, String>>,
-               signatures: &Vec<Signature>)
-               -> FuncRef {
+fn find_function_import(index: usize,
+                        builder: &mut FunctionBuilder<Local>,
+                        func_imports: &mut FunctionImports,
+                        functions: &Vec<u32>,
+                        exports: &Option<HashMap<u32, String>>,
+                        signatures: &Vec<Signature>)
+                        -> FuncRef {
     match func_imports.functions.get(&index) {
         Some(local_index) => return *local_index,
         None => {}
@@ -1174,4 +1215,20 @@ fn find_import(index: usize,
                                 });
     func_imports.functions.insert(index, local_func_index);
     local_func_index
+}
+
+fn find_signature_import(sig_index: usize,
+                         builder: &mut FunctionBuilder<Local>,
+                         func_imports: &mut FunctionImports,
+                         signatures: &Vec<Signature>)
+                         -> SigRef {
+    match func_imports.signatures.get(&(sig_index as usize)) {
+        Some(local_sig_index) => return *local_sig_index,
+        None => {}
+    }
+    let sig_local_index = builder.import_signature(signatures[sig_index as usize].clone());
+    func_imports
+        .signatures
+        .insert(sig_index as usize, sig_local_index);
+    sig_local_index
 }

@@ -83,6 +83,7 @@ fn main() {
                           "tests/f64_cmp.wast.0.wasm",
                           "tests/float_literals.wast.0.wasm",
                           "tests/int_literals.wast.0.wasm",
+                          "tests/func.wast.0.wasm",
                           "tests/memory_redundancy.wast.0.wasm",
                           "tests/memory_trap.wast.0.wasm",
                           "tests/memory_trap.wast.1.wasm",
@@ -116,8 +117,11 @@ fn main() {
     for i in 0..4 {
         test_files.push(format!("tests/traps.wast.{}.wasm", i));
     }
-    for i in vec![0] {
+    for i in vec![0, 8, 9] {
         test_files.push(format!("tests/func_ptrs.wast.{}.wasm", i));
+    }
+    for i in vec![0, 17, 18, 19] {
+        test_files.push(format!("tests/call_indirect.wast.{}.wasm", i));
     }
     for i in 0..4 {
         test_files.push(format!("tests/binary.wast.{}.wasm", i));
@@ -137,6 +141,9 @@ fn main() {
     for i in 0..3 {
         test_files.push(format!("tests/resizing.wast.{}.wasm", i));
     }
+    for i in vec![0, 16, 19] {
+        test_files.push(format!("tests/globals.wast.{}.wasm", i));
+    }
 
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.help(true).version(Some(format!("0.0.0"))).deserialize())
@@ -151,7 +158,7 @@ fn main() {
         for path in paths {
             let path = path.path();
             let name = String::from(path.as_os_str().to_string_lossy());
-            if !test_files.contains(&name) {
+            if false {
                 terminal.fg(term::color::MAGENTA).unwrap();
                 print!("Not tested: ");
                 terminal.reset().unwrap();

@@ -1,7 +1,8 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
-                          parse_function_section, parse_export_section, parse_memory_section};
-use translation_utils::{type_to_type, Memory, Import};
+                          parse_function_section, parse_export_section, parse_memory_section,
+                          parse_global_section};
+use translation_utils::{type_to_type, Memory, Import, Global};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cretonne::ir::frontend::ILBuilder;
@@ -17,6 +18,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
     let mut functions: Option<Vec<u32>> = None;
     let mut exports: Option<HashMap<u32, String>> = None;
     let mut memories: Option<Vec<Memory>> = None;
+    let mut globals: Option<Vec<Global>> = None;
     let mut next_input = ParserInput::Default;
     let mut function_index: u32 = 0;
     loop {
@@ -51,6 +53,15 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                                         Some(mut mems) => {
                                             mems.push(mem);
                                             Some(mems)
+                                        }
+                                    }
+                                }
+                                Import::Global(glob) => {
+                                    globals = match globals {
+                                        None => Some(vec![glob]),
+                                        Some(mut globs) => {
+                                            globs.push(glob);
+                                            Some(globs)
                                         }
                                     }
                                 }
@@ -90,7 +101,21 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                 next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Global, .. } => {
-                next_input = ParserInput::SkipSection;
+                match parse_global_section(&mut parser) {
+                    Ok(globs) => {
+                        globals = match globals {
+                            None => Some(globs),
+                            Some(mut old_globs) => {
+                                old_globs.extend(globs);
+                                Some(old_globs)
+                            }
+                        }
+                    }
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the global section"))
+                    }
+                }
+                next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Export, .. } => {
                 match parse_export_section(&mut parser) {
@@ -160,6 +185,7 @@ pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
                                       &signatures,
                                       &functions,
                                       memories.clone(),
+                                      &globals,
                                       &mut il_builder) {
             Ok(il_func) => il_functions.push(il_func),
             Err(s) => return Err(s),

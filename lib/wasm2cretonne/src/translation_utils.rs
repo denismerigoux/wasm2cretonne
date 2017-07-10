@@ -9,12 +9,20 @@ pub struct Memory {
     pub maximum: Option<u32>,
 }
 
-/// Struct that modles Wasm imports
+/// Struct that models Wasm imports
+#[derive(Debug,Clone,Copy)]
 pub enum Import {
     Function { sig_index: u32 },
     Memory(Memory),
+    Global(Global),
 }
 
+/// Struct that models Wasm globals
+#[derive(Debug,Clone,Copy)]
+pub struct Global {
+    pub ty: cretonne::ir::Type,
+    pub mutability: bool,
+}
 
 /// Helper function translating wasmparser types to Cretonne types when possible.
 pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
