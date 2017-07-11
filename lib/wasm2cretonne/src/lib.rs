@@ -1,4 +1,5 @@
 extern crate wasmparser;
+extern crate cton_frontend;
 extern crate cretonne;
 
 pub mod module_translator;

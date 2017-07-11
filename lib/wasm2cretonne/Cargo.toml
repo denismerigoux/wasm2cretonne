@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
+cretonne-frontend = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}

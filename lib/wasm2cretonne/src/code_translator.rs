@@ -5,7 +5,7 @@ use cretonne::ir::immediates::{Ieee32, Ieee64, Offset32};
 use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cretonne::entity_ref::EntityRef;
-use cretonne::ir::frontend::{ILBuilder, FunctionBuilder};
+use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
                         Memory, Global};

@@ -5,7 +5,7 @@ use sections_translator::{SectionParsingError, parse_function_signatures, parse_
 use translation_utils::{type_to_type, Memory, Import, Global};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
-use cretonne::ir::frontend::ILBuilder;
+use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 
 pub fn translate_module(data: &Vec<u8>) -> Result<Vec<Function>, String> {
