@@ -1,6 +1,8 @@
 use wasmparser;
 use cretonne;
 use std::mem;
+use std::u32;
+use runtime::Global;
 
 /// Struct that models the Wasm linear memory
 #[derive(Debug,Clone,Copy)]
@@ -17,11 +19,23 @@ pub enum Import {
     Global(Global),
 }
 
-/// Struct that models Wasm globals
-#[derive(Debug,Clone,Copy)]
-pub struct Global {
-    pub ty: cretonne::ir::Type,
-    pub mutability: bool,
+// An opaque reference to local variable in wasm.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Local(pub u32);
+impl cretonne::entity_ref::EntityRef for Local {
+    fn new(index: usize) -> Self {
+        assert!(index < (u32::MAX as usize));
+        Local(index as u32)
+    }
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+impl Default for Local {
+    fn default() -> Local {
+        Local(u32::MAX)
+    }
 }
 
 /// Helper function translating wasmparser types to Cretonne types when possible.

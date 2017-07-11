@@ -102,7 +102,8 @@ fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), S
             return Err(String::from(err.description()));
         }
     };
-    let funcs = match translate_module(&data) {
+    let mut runtime = DummyRuntime::new();
+    let funcs = match translate_module(&data, &mut runtime) {
         Ok(funcs) => funcs,
         Err(string) => {
             terminal.fg(term::color::RED).unwrap();

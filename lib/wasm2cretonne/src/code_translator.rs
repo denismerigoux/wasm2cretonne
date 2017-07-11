@@ -4,32 +4,13 @@ use cretonne::ir::types::*;
 use cretonne::ir::immediates::{Ieee32, Ieee64, Offset32};
 use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
-use cretonne::entity_ref::EntityRef;
 use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
-                        Memory, Global};
+                        Memory, Local};
 use std::collections::{HashMap, HashSet};
+use runtime::WasmRuntime;
 use std::u32;
-
-// An opaque reference to local variable in wasm.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Local(u32);
-impl EntityRef for Local {
-    fn new(index: usize) -> Self {
-        assert!(index < (u32::MAX as usize));
-        Local(index as u32)
-    }
-
-    fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-impl Default for Local {
-    fn default() -> Local {
-        Local(u32::MAX)
-    }
-}
 
 #[derive(Debug)]
 enum ControlStackFrame {
@@ -121,8 +102,8 @@ pub fn translate_function_body(parser: &mut Parser,
                                signatures: &Vec<Signature>,
                                functions: &Vec<u32>,
                                memories: Option<Vec<Memory>>,
-                               globals: &Option<Vec<Global>>,
-                               il_builder: &mut ILBuilder<Local>)
+                               il_builder: &mut ILBuilder<Local>,
+                               runtime: &WasmRuntime<Local>)
                                -> Result<Function, String> {
     let mut func = Function::new();
     let args_num: usize = sig.argument_types.len();
@@ -285,6 +266,7 @@ pub fn translate_function_body(parser: &mut Parser,
                         // the proper translation
                         translate_operator(op,
                                            &mut builder,
+                                           runtime,
                                            &mut stack,
                                            &mut control_stack,
                                            &mut state,
@@ -293,7 +275,6 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &signatures,
                                            &exports,
                                            &mut memory,
-                                           &globals,
                                            &mut func_imports)
                     }
                 }
@@ -334,6 +315,7 @@ pub fn translate_function_body(parser: &mut Parser,
 /// a return.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
+                      runtime: &WasmRuntime<Local>,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
@@ -342,7 +324,6 @@ fn translate_operator(op: &Operator,
                       signatures: &Vec<Signature>,
                       exports: &Option<HashMap<u32, String>>,
                       memory: &mut Option<Memory>,
-                      globals: &Option<Vec<Global>>,
                       func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
@@ -352,23 +333,12 @@ fn translate_operator(op: &Operator,
             builder.def_var(Local(local_index), val);
         }
         Operator::GetGlobal { global_index } => {
-            // TODO: add runtime support
-            let ref glob = match globals {
-                &None => panic!("no declared globals"),
-                &Some(ref globs) => globs.get(global_index as usize).unwrap(),
-            };
-            let val = match glob.ty {
-                I32 => builder.ins().iconst(glob.ty, -1),
-                I64 => builder.ins().iconst(glob.ty, -1),
-                F32 => builder.ins().f32const(Ieee32::new(-1.0)),
-                F64 => builder.ins().f64const(Ieee64::new(-1.0)),
-                _ => panic!("should not happen"),
-            };
+            let val = runtime.translate_get_global(builder, global_index);
             stack.push(val);
         }
-        Operator::SetGlobal { global_index: _ } => {
-            // TODO: add runtime support
-            stack.pop().unwrap();
+        Operator::SetGlobal { global_index } => {
+            let val = stack.pop().unwrap();
+            runtime.translate_set_global(builder, global_index, val);
         }
         Operator::TeeLocal { local_index } => {
             let val = stack.last().unwrap();
@@ -633,13 +603,12 @@ fn translate_operator(op: &Operator,
                 stack.push(*val);
             }
         }
-        Operator::GrowMemory { .. } => {
-            //TODO: translate this with runtime support
-            stack.pop().unwrap();
+        Operator::GrowMemory { reserved: _ } => {
+            let val = stack.pop().unwrap();
+            runtime.translate_grow_memory(builder, val);
         }
-        Operator::CurrentMemory { .. } => {
-            //TODO: translate this with runtime support
-            stack.push(builder.ins().iconst(I32, -1));
+        Operator::CurrentMemory { reserved: _ } => {
+            stack.push(runtime.translate_current_memory(builder));
         }
         Operator::I32Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             memory.expect("no memory declared");
