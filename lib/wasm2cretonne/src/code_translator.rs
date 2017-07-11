@@ -515,7 +515,6 @@ fn translate_operator(op: &Operator,
             stack.extend(jump_args);
         }
         Operator::BrTable { ref table } => {
-            // TODO: deal with jump arguments by splitting edges
             let (depths, default) = table.read_table();
             let mut min_depth = default;
             for depth in depths.iter() {
