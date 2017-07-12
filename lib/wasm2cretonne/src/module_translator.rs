@@ -1,8 +1,8 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
-                          parse_global_section};
-use translation_utils::{type_to_type, Memory, Import, Local};
+                          parse_global_section, parse_table_section};
+use translation_utils::{type_to_type, Memory, Import};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cton_frontend::ILBuilder;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use runtime::WasmRuntime;
 
 pub fn translate_module(data: &Vec<u8>,
-                        runtime: &mut WasmRuntime<Local>)
+                        runtime: &mut WasmRuntime)
                         -> Result<Vec<Function>, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
@@ -85,7 +85,12 @@ pub fn translate_module(data: &Vec<u8>,
                 next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Table, .. } => {
-                next_input = ParserInput::SkipSection;
+                match parse_table_section(&mut parser, runtime) {
+                    Ok(()) => (),
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the table section"))
+                    }
+                }
             }
             ParserState::BeginSection { code: SectionCode::Memory, .. } => {
                 match parse_memory_section(&mut parser) {
@@ -97,12 +102,8 @@ pub fn translate_module(data: &Vec<u8>,
                 next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Global, .. } => {
-                match parse_global_section(&mut parser) {
-                    Ok(globs) => {
-                        for glob in globs {
-                            runtime.declare_global(glob);
-                        }
-                    }
+                match parse_global_section(&mut parser, runtime) {
+                    Ok(()) => (),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the global section"))
                     }

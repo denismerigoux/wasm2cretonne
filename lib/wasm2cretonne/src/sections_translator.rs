@@ -6,7 +6,7 @@ use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, External
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;
-use runtime::Global;
+use runtime::{WasmRuntime, Global, Table, TableElementType};
 
 pub enum SectionParsingError {
     WrongSectionContent(),
@@ -148,19 +148,43 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
 }
 
 /// Retrieves the size and maximum fields of memories from the memory section
-pub fn parse_global_section(parser: &mut Parser) -> Result<Vec<Global>, SectionParsingError> {
-    let mut globals: Vec<Global> = Vec::new();
+pub fn parse_global_section(parser: &mut Parser,
+                            runtime: &mut WasmRuntime)
+                            -> Result<(), SectionParsingError> {
     loop {
         match *parser.read() {
             ParserState::BeginGlobalSectionEntry(ref ty) => {
-                globals.push(Global {
-                                 ty: type_to_type(&ty.content_type).unwrap(),
-                                 mutability: ty.mutability != 0,
-                             });
+                runtime.declare_global(Global {
+                                           ty: type_to_type(&ty.content_type).unwrap(),
+                                           mutability: ty.mutability != 0,
+                                       });
             }
             ParserState::EndSection => break,
             _ => (), // initializer expression
         };
     }
-    Ok(globals)
+    Ok(())
+}
+
+/// Retrieves the stables from the table section
+pub fn parse_table_section(parser: &mut Parser,
+                           runtime: &mut WasmRuntime)
+                           -> Result<(), SectionParsingError> {
+    loop {
+        match *parser.read() {
+            ParserState::TableSectionEntry(ref table) => {
+                runtime.declare_table(Table {
+                                          ty: match type_to_type(&table.element_type) {
+                                              Ok(t) => TableElementType::Val(t),
+                                              Err(()) => TableElementType::Func(),
+                                          },
+                                          size: table.limits.initial,
+                                          maximum: table.limits.maximum,
+                                      })
+            }
+            ParserState::EndSection => break,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(())
 }

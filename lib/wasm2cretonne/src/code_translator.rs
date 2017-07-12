@@ -103,7 +103,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                functions: &Vec<u32>,
                                memories: Option<Vec<Memory>>,
                                il_builder: &mut ILBuilder<Local>,
-                               runtime: &WasmRuntime<Local>)
+                               runtime: &WasmRuntime)
                                -> Result<Function, String> {
     let mut func = Function::new();
     let args_num: usize = sig.argument_types.len();
@@ -315,7 +315,7 @@ pub fn translate_function_body(parser: &mut Parser,
 /// a return.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
-                      runtime: &WasmRuntime<Local>,
+                      runtime: &WasmRuntime,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,

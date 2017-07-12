@@ -1,24 +1,27 @@
-use runtime::WasmRuntime;
+use runtime::{Global, Table, WasmRuntime};
 use translation_utils::Local;
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, InstBuilder};
 use cretonne::ir::immediates::{Ieee32, Ieee64};
 use cretonne::ir::types::*;
-use runtime::Global;
 
 
 pub struct DummyRuntime {
     globals: Vec<Global>,
+    tables: Vec<Table>,
 }
 
 impl DummyRuntime {
     /// Allocates the runtime data structures
     pub fn new() -> DummyRuntime {
-        DummyRuntime { globals: Vec::new() }
+        DummyRuntime {
+            globals: Vec::new(),
+            tables: Vec::new(),
+        }
     }
 }
 
-impl WasmRuntime<Local> for DummyRuntime {
+impl WasmRuntime for DummyRuntime {
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
                             global_index: u32)
@@ -44,5 +47,9 @@ impl WasmRuntime<Local> for DummyRuntime {
     }
     fn declare_global(&mut self, global: Global) {
         self.globals.push(global);
+    }
+
+    fn declare_table(&mut self, table: Table) {
+        self.tables.push(table);
     }
 }
