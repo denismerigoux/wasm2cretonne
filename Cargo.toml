@@ -10,8 +10,8 @@ name = "wasm2cretonne-util"
 [dependencies]
 wasm2cretonne = { path = "lib/wasm2cretonne" }
 wasmparser = "0.6.1"
-cretonne = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
-cretonne-frontend = { git = "https://github.com/denismerigoux/cretonne.git", branch="frontend"}
+cretonne = { git = "https://github.com/stoklund/cretonne.git" }
+cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
 wasmtext = { git = "https://github.com/yurydelendik/wasmtext" }
 docopt = "0.8.0"
 serde = "1.0.8"

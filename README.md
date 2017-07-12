@@ -5,8 +5,16 @@
 ## Example
 
 ```rust
-use wasm2cretonne::module_translator::translate_module;
+use wasm2cretonne::translate_module;
 use std::path::Path;
+
+fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
+    let mut buf: Vec<u8> = Vec::new();
+    let file = File::open(path)?;
+    let mut buf_reader = BufReader::new(file);
+    buf_reader.read_to_end(&mut buf)?;
+    Ok(buf)
+}
 
 let path = Path::new("tests/simple.wasm")
 let data = match read_wasm_file(path) {

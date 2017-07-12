@@ -8,7 +8,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::module_translator::translate_module;
+use wasm2cretonne::translate_module;
 use cretonne::ir::Function;
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
