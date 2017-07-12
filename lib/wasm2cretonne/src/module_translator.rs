@@ -2,7 +2,7 @@ use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
                           parse_global_section, parse_table_section};
-use translation_utils::{type_to_type, Memory, Import};
+use translation_utils::{type_to_type, Import};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cton_frontend::ILBuilder;
@@ -20,7 +20,6 @@ pub fn translate_module(data: &Vec<u8>,
     let mut signatures = None;
     let mut functions: Option<Vec<u32>> = None;
     let mut exports: Option<HashMap<u32, String>> = None;
-    let mut memories: Option<Vec<Memory>> = None;
     let mut next_input = ParserInput::Default;
     let mut function_index: u32 = 0;
     loop {
@@ -50,13 +49,7 @@ pub fn translate_module(data: &Vec<u8>,
                                     function_index += 1;
                                 }
                                 Import::Memory(mem) => {
-                                    memories = match memories {
-                                        None => Some(vec![mem]),
-                                        Some(mut mems) => {
-                                            mems.push(mem);
-                                            Some(mems)
-                                        }
-                                    }
+                                    runtime.declare_memory(mem);
                                 }
                                 Import::Global(glob) => {
                                     runtime.declare_global(glob);
@@ -94,7 +87,11 @@ pub fn translate_module(data: &Vec<u8>,
             }
             ParserState::BeginSection { code: SectionCode::Memory, .. } => {
                 match parse_memory_section(&mut parser) {
-                    Ok(mems) => memories = Some(mems),
+                    Ok(mems) => {
+                        for mem in mems {
+                            runtime.declare_memory(mem);
+                        }
+                    }
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the memory section"))
                     }
@@ -177,7 +174,6 @@ pub fn translate_module(data: &Vec<u8>,
                                       &exports,
                                       &signatures,
                                       &functions,
-                                      memories.clone(),
                                       &mut il_builder,
                                       runtime) {
             Ok(il_func) => il_functions.push(il_func),

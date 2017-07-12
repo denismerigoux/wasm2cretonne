@@ -1,4 +1,4 @@
-use runtime::{Global, Table, WasmRuntime};
+use runtime::{Global, Table, WasmRuntime, Memory};
 use translation_utils::Local;
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, InstBuilder};
@@ -9,6 +9,7 @@ use cretonne::ir::types::*;
 pub struct DummyRuntime {
     globals: Vec<Global>,
     tables: Vec<Table>,
+    memories: Vec<Memory>,
 }
 
 impl DummyRuntime {
@@ -17,6 +18,7 @@ impl DummyRuntime {
         DummyRuntime {
             globals: Vec::new(),
             tables: Vec::new(),
+            memories: Vec::new(),
         }
     }
 }
@@ -48,8 +50,10 @@ impl WasmRuntime for DummyRuntime {
     fn declare_global(&mut self, global: Global) {
         self.globals.push(global);
     }
-
     fn declare_table(&mut self, table: Table) {
         self.tables.push(table);
+    }
+    fn declare_memory(&mut self, memory: Memory) {
+        self.memories.push(memory)
     }
 }

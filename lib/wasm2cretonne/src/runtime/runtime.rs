@@ -26,6 +26,14 @@ pub enum TableElementType {
     Func(),
 }
 
+
+/// Struct that models the Wasm linear memory
+#[derive(Debug,Clone,Copy)]
+pub struct Memory {
+    pub size: u32,
+    pub maximum: Option<u32>,
+}
+
 pub trait WasmRuntime {
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
@@ -40,4 +48,5 @@ pub trait WasmRuntime {
 
     fn declare_global(&mut self, global: Global);
     fn declare_table(&mut self, table: Table);
+    fn declare_memory(&mut self, memory: Memory);
 }

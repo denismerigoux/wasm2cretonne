@@ -2,14 +2,7 @@ use wasmparser;
 use cretonne;
 use std::mem;
 use std::u32;
-use runtime::Global;
-
-/// Struct that models the Wasm linear memory
-#[derive(Debug,Clone,Copy)]
-pub struct Memory {
-    pub size: u32,
-    pub maximum: Option<u32>,
-}
+use runtime::{Global, Memory};
 
 /// Struct that models Wasm imports
 #[derive(Debug,Clone,Copy)]

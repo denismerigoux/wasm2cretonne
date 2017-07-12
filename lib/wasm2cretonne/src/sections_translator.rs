@@ -1,4 +1,4 @@
-use translation_utils::{type_to_type, Memory, Import};
+use translation_utils::{type_to_type, Import};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
@@ -6,7 +6,7 @@ use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, External
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;
-use runtime::{WasmRuntime, Global, Table, TableElementType};
+use runtime::{WasmRuntime, Global, Table, TableElementType, Memory};
 
 pub enum SectionParsingError {
     WrongSectionContent(),
