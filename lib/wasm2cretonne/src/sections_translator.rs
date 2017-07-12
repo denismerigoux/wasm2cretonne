@@ -2,11 +2,11 @@ use translation_utils::{type_to_type, Import};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
-                 MemoryType};
+                 MemoryType, Operator};
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;
-use runtime::{WasmRuntime, Global, Table, TableElementType, Memory};
+use runtime::{WasmRuntime, Global, GlobalInit, Table, TableElementType, Memory};
 
 pub enum SectionParsingError {
     WrongSectionContent(),
@@ -78,6 +78,7 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                 imports.push(Import::Global(Global {
                                                 ty: type_to_type(&ty.content_type).unwrap(),
                                                 mutability: ty.mutability != 0,
+                                                initializer: GlobalInit::Import(),
                                             }));
             }
             ParserState::EndSection => break,
@@ -152,16 +153,47 @@ pub fn parse_global_section(parser: &mut Parser,
                             runtime: &mut WasmRuntime)
                             -> Result<(), SectionParsingError> {
     loop {
-        match *parser.read() {
-            ParserState::BeginGlobalSectionEntry(ref ty) => {
-                runtime.declare_global(Global {
-                                           ty: type_to_type(&ty.content_type).unwrap(),
-                                           mutability: ty.mutability != 0,
-                                       });
-            }
+        let (content_type, mutability) = match *parser.read() {
+            ParserState::BeginGlobalSectionEntry(ref ty) => (ty.content_type, ty.mutability),
             ParserState::EndSection => break,
-            _ => (), // initializer expression
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
+        match *parser.read() {
+            ParserState::BeginInitExpressionBody => (),
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        }
+        let initializer = match *parser.read() {
+            ParserState::InitExpressionOperator(Operator::I32Const { value }) => {
+                GlobalInit::I32Const(value)
+            }
+            ParserState::InitExpressionOperator(Operator::I64Const { value }) => {
+                GlobalInit::I64Const(value)
+            }
+            ParserState::InitExpressionOperator(Operator::F32Const { value }) => {
+                GlobalInit::F32Const(value.bits())
+            }
+            ParserState::InitExpressionOperator(Operator::F64Const { value }) => {
+                GlobalInit::F64Const(value.bits())
+            }
+            ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
+                GlobalInit::ImportRef(global_index as usize)
+            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+
+        };
+        match *parser.read() {
+            ParserState::EndInitExpressionBody => (),
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        }
+        runtime.declare_global(Global {
+                                   ty: type_to_type(&content_type).unwrap(),
+                                   mutability: mutability != 0,
+                                   initializer: initializer,
+                               });
+        match *parser.read() {
+            ParserState::EndGlobalSectionEntry => (),
+            _ => return Err(SectionParsingError::WrongSectionContent()),
+        }
     }
     Ok(())
 }

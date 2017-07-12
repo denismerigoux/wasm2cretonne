@@ -1,6 +1,7 @@
 extern crate wasmparser;
 extern crate cton_frontend;
 extern crate cretonne;
+extern crate byteorder;
 
 mod module_translator;
 mod translation_utils;

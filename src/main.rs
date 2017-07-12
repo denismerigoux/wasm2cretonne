@@ -8,7 +8,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::translate_module;
+use wasm2cretonne::module_translator::translate_module;
+use wasm2cretonne::runtime::StandaloneRuntime;
 use cretonne::ir::Function;
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -102,7 +103,7 @@ fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), S
             return Err(String::from(err.description()));
         }
     };
-    let mut runtime = DummyRuntime::new();
+    let mut runtime = StandaloneRuntime::new();
     let funcs = match translate_module(&data, &mut runtime) {
         Ok(funcs) => funcs,
         Err(string) => {

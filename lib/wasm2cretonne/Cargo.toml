@@ -8,3 +8,4 @@ publish = false
 wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/stoklund/cretonne.git" }
 cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
+byteorder = "1"

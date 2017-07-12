@@ -56,4 +56,8 @@ impl WasmRuntime for DummyRuntime {
     fn declare_memory(&mut self, memory: Memory) {
         self.memories.push(memory)
     }
+
+    fn instantiate(&mut self) {
+        // We do nothing
+    }
 }

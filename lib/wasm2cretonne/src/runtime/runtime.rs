@@ -10,6 +10,17 @@ use translation_utils::Local;
 pub struct Global {
     pub ty: Type,
     pub mutability: bool,
+    pub initializer: GlobalInit,
+}
+
+#[derive(Debug,Clone,Copy)]
+pub enum GlobalInit {
+    I32Const(i32),
+    I64Const(i64),
+    F32Const(u32),
+    F64Const(u64),
+    Import(),
+    ImportRef(usize),
 }
 
 /// Struct that models Wasm tables
@@ -35,6 +46,12 @@ pub struct Memory {
 }
 
 pub trait WasmRuntime {
+    fn declare_global(&mut self, global: Global);
+    fn declare_table(&mut self, table: Table);
+    fn declare_memory(&mut self, memory: Memory);
+
+    fn instantiate(&mut self);
+
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
                             global_index: u32)
@@ -45,8 +62,4 @@ pub trait WasmRuntime {
                             val: Value);
     fn translate_grow_memory(&self, builder: &mut FunctionBuilder<Local>, val: Value);
     fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value;
-
-    fn declare_global(&mut self, global: Global);
-    fn declare_table(&mut self, table: Table);
-    fn declare_memory(&mut self, memory: Memory);
 }

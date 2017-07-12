@@ -149,6 +149,7 @@ pub fn translate_module(data: &Vec<u8>,
     };
     let mut il_functions: Vec<Function> = Vec::new();
     let mut il_builder = ILBuilder::new();
+    runtime.instantiate();
     loop {
         let locals: Vec<(u32, Type)> = match *parser.read() {
             ParserState::BeginFunctionBody { ref locals, .. } => {
