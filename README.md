@@ -6,7 +6,7 @@
 
 ```rust
 use wasm2cretonne::translate_module;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
     let mut buf: Vec<u8> = Vec::new();
@@ -16,17 +16,17 @@ fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
     Ok(buf)
 }
 
-let path = Path::new("tests/simple.wasm")
-let data = match read_wasm_file(path) {
+let path = Path::new("tests/simple.wasm");
+let data = match read_wasm_file(path.to_path_buf()) {
     Ok(data) => data,
     Err(err) => {
-        println!("Error: {}", err);
+        panic!("Error: {}", err);
     }
 };
 let funcs = match translate_module(&data) {
     Ok(funcs) => funcs,
     Err(string) => {
-        println!(string);
+        panic!(string);
     }
 };
 ```
