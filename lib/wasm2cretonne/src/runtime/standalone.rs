@@ -1,7 +1,9 @@
 use runtime::runtime::{Global, GlobalInit, Table, Memory, WasmRuntime};
 use translation_utils::Local;
 use cton_frontend::FunctionBuilder;
-use cretonne::ir::Value;
+use cretonne::ir::{MemFlags, Value, InstBuilder};
+use cretonne::ir::types::*;
+use cretonne::ir::immediates::Offset32;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::mem::transmute;
 use std::ptr::copy_nonoverlapping;
@@ -32,13 +34,29 @@ impl StandaloneRuntime {
 }
 
 impl WasmRuntime for StandaloneRuntime {
-    fn translate_get_global(&self, builder: &mut FunctionBuilder<Local>, _: u32) -> Value {
+    fn translate_get_global(&self,
+                            builder: &mut FunctionBuilder<Local>,
+                            global_index: u32)
+                            -> Value {
         debug_assert!(self.instantiated);
-        unimplemented!()
+        let ty = self.globals[global_index as usize].ty;
+        let offset = self.globals_offsets[global_index as usize];
+        let memflags = MemFlags::new();
+        let memoffset = Offset32::new(offset as i32);
+        let addr: i64 = unsafe { transmute(self.globals_data.as_ptr()) };
+        let addr_val = builder.ins().iconst(I64, addr);
+        builder.ins().load(ty, memflags, addr_val, memoffset)
     }
-    fn translate_set_global(&self, _: &mut FunctionBuilder<Local>, _: u32, _: Value) {
-        debug_assert!(self.instantiated);
-        unimplemented!()
+    fn translate_set_global(&self,
+                            builder: &mut FunctionBuilder<Local>,
+                            global_index: u32,
+                            val: Value) {
+        let offset = self.globals_offsets[global_index as usize];
+        let memflags = MemFlags::new();
+        let memoffset = Offset32::new(offset as i32);
+        let addr: i64 = unsafe { transmute(self.globals_data.as_ptr()) };
+        let addr_val = builder.ins().iconst(I64, addr);
+        builder.ins().store(memflags, val, addr_val, memoffset);
     }
     fn translate_grow_memory(&self, _: &mut FunctionBuilder<Local>, _: Value) {
         debug_assert!(self.instantiated);
