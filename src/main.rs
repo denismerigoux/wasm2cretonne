@@ -57,11 +57,12 @@ fn main() {
         .and_then(|d| d.help(true).version(Some(format!("0.0.0"))).deserialize())
         .unwrap_or_else(|e| e.exit());
     let mut terminal = term::stdout().unwrap();
-    let mut paths: Vec<_> = fs::read_dir("tests").unwrap().map(|r| r.unwrap()).collect();
-    let total_files = paths.len();
-    paths.sort_by_key(|dir| dir.path());
 
     if args.cmd_all {
+        let mut paths: Vec<_> = fs::read_dir("tests").unwrap().map(|r| r.unwrap()).collect();
+        let total_files = paths.len();
+        paths.sort_by_key(|dir| dir.path());
+
         let mut files_ok = 0;
         for path in paths {
             let path = path.path();
