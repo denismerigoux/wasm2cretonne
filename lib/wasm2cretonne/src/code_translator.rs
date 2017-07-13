@@ -584,13 +584,11 @@ fn translate_operator(op: &Operator,
             // TODO: have runtime support for tables
             let sigref = find_signature_import(index as usize, builder, func_imports, signatures);
             let args_num = builder.signature(sigref).unwrap().argument_types.len();
-            let val = stack.pop().unwrap();
+            let index_val = stack.pop().unwrap();
             let cut_index = stack.len() - args_num;
             let call_args = stack.split_off(cut_index);
-            let call_inst = builder
-                .ins()
-                .call_indirect(sigref, val, call_args.as_slice());
-            let ret_values = builder.inst_results(call_inst);
+            let ret_values =
+                runtime.translate_call_indirect(builder, sigref, index_val, call_args.as_slice());
             for val in ret_values {
                 stack.push(*val);
             }

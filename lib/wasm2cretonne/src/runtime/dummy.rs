@@ -1,25 +1,19 @@
 use runtime::{Global, Table, WasmRuntime, Memory};
 use translation_utils::Local;
 use cton_frontend::FunctionBuilder;
-use cretonne::ir::{Value, InstBuilder};
+use cretonne::ir::{Value, InstBuilder, SigRef};
 use cretonne::ir::immediates::{Ieee32, Ieee64};
 use cretonne::ir::types::*;
 
 
 pub struct DummyRuntime {
     globals: Vec<Global>,
-    tables: Vec<Table>,
-    memories: Vec<Memory>,
 }
 
 impl DummyRuntime {
     /// Allocates the runtime data structures
     pub fn new() -> DummyRuntime {
-        DummyRuntime {
-            globals: Vec::new(),
-            tables: Vec::new(),
-            memories: Vec::new(),
-        }
+        DummyRuntime { globals: Vec::new() }
     }
 }
 
@@ -47,14 +41,27 @@ impl WasmRuntime for DummyRuntime {
     fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value {
         builder.ins().iconst(I32, -1)
     }
-    fn declare_global(&mut self, global: Global) {
-        self.globals.push(global);
+    fn translate_call_indirect<'a>(&self,
+                                   builder: &'a mut FunctionBuilder<Local>,
+                                   sig_ref: SigRef,
+                                   index_val: Value,
+                                   call_args: &[Value])
+                                   -> &'a [Value] {
+        let call_inst = builder.ins().call_indirect(sig_ref, index_val, call_args);
+        builder.inst_results(call_inst)
     }
-    fn declare_table(&mut self, table: Table) {
-        self.tables.push(table);
+
+    fn declare_global(&mut self, _: Global) {
+        //We do nothing
     }
-    fn declare_memory(&mut self, memory: Memory) {
-        self.memories.push(memory)
+    fn declare_table(&mut self, _: Table) {
+        //We do nothing
+    }
+    fn declare_table_elements(&mut self, _: u32, _: u32, _: &[u32]) {
+        //We do nothing
+    }
+    fn declare_memory(&mut self, _: Memory) {
+        //We do nothing
     }
 
     fn instantiate(&mut self) {

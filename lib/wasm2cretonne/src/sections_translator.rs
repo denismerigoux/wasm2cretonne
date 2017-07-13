@@ -63,7 +63,6 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
             ParserState::ImportSectionEntry {
                 ty: ImportSectionEntryType::Function(sig), ..
             } => imports.push(Import::Function { sig_index: sig }),
-            ParserState::ImportSectionEntry { ty: ImportSectionEntryType::Table(..), .. } => {}
             ParserState::ImportSectionEntry {
                 ty: ImportSectionEntryType::Memory(MemoryType { limits: ref memlimits }), ..
             } => {
@@ -80,6 +79,18 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                                                 mutability: ty.mutability != 0,
                                                 initializer: GlobalInit::Import(),
                                             }));
+            }
+            ParserState::ImportSectionEntry {
+                ty: ImportSectionEntryType::Table(ref tab), ..
+            } => {
+                imports.push(Import::Table(Table {
+                                               ty: match type_to_type(&tab.element_type) {
+                                                   Ok(t) => TableElementType::Val(t),
+                                                   Err(()) => TableElementType::Func(),
+                                               },
+                                               size: tab.limits.initial,
+                                               maximum: tab.limits.maximum,
+                                           }));
             }
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
@@ -198,7 +209,7 @@ pub fn parse_global_section(parser: &mut Parser,
     Ok(())
 }
 
-/// Retrieves the stables from the table section
+/// Retrieves the tables from the table section
 pub fn parse_table_section(parser: &mut Parser,
                            runtime: &mut WasmRuntime)
                            -> Result<(), SectionParsingError> {
@@ -216,6 +227,60 @@ pub fn parse_table_section(parser: &mut Parser,
             }
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
+        };
+    }
+    Ok(())
+}
+
+/// Retrieves the tables from the table section
+pub fn parse_elements_section(parser: &mut Parser,
+                              runtime: &mut WasmRuntime)
+                              -> Result<(), SectionParsingError> {
+    loop {
+        let table_index = match *parser.read() {
+            ParserState::BeginElementSectionEntry(ref table_index) => *table_index,
+            ParserState::EndSection => break,
+            ref s @ _ => {
+                println!("1 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
+        };
+        match *parser.read() {
+            ParserState::BeginInitExpressionBody => (),
+            ref s @ _ => {
+                println!("2 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
+        };
+        let offset = match *parser.read() {
+            ParserState::InitExpressionOperator(Operator::I32Const { value }) => value,
+            ref s @ _ => {
+                println!("3 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
+        };
+        match *parser.read() {
+            ParserState::EndInitExpressionBody => (),
+            ref s @ _ => {
+                println!("2 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
+        };
+        match *parser.read() {
+            ParserState::ElementSectionEntryBody(ref elements) => {
+                runtime.declare_table_elements(table_index, offset as u32, elements.as_slice())
+            }
+            ref s @ _ => {
+                println!("2 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
+        };
+        match *parser.read() {
+            ParserState::EndElementSectionEntry => (),
+            ref s @ _ => {
+                println!("3 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
     }
     Ok(())

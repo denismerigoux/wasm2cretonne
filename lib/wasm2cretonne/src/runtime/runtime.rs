@@ -1,7 +1,7 @@
 //! All the runtime support necessary for the wasm -> cretonne translation is formalized by the
 //! trait `WasmRuntime`.
 use cton_frontend::FunctionBuilder;
-use cretonne::ir::{Value, Type};
+use cretonne::ir::{Value, Type, SigRef};
 use translation_utils::Local;
 
 
@@ -37,7 +37,6 @@ pub enum TableElementType {
     Func(),
 }
 
-
 /// Struct that models the Wasm linear memory
 #[derive(Debug,Clone,Copy)]
 pub struct Memory {
@@ -48,6 +47,7 @@ pub struct Memory {
 pub trait WasmRuntime {
     fn declare_global(&mut self, global: Global);
     fn declare_table(&mut self, table: Table);
+    fn declare_table_elements(&mut self, table_index: u32, offset: u32, elements: &[u32]);
     fn declare_memory(&mut self, memory: Memory);
 
     fn instantiate(&mut self);
@@ -62,4 +62,10 @@ pub trait WasmRuntime {
                             val: Value);
     fn translate_grow_memory(&self, builder: &mut FunctionBuilder<Local>, val: Value);
     fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value;
+    fn translate_call_indirect<'a>(&self,
+                                   builder: &'a mut FunctionBuilder<Local>,
+                                   sig_ref: SigRef,
+                                   index_val: Value,
+                                   call_args: &[Value])
+                                   -> &'a [Value];
 }

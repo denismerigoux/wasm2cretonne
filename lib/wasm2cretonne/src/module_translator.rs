@@ -1,7 +1,7 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
-                          parse_global_section, parse_table_section};
+                          parse_global_section, parse_table_section, parse_elements_section};
 use translation_utils::{type_to_type, Import};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
@@ -9,6 +9,8 @@ use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 use runtime::WasmRuntime;
 
+/// Translate a sequence of bytes forming a valid Wasm binary into a list of valid Cretonne IL
+/// [`Function`](../cretonne/ir/function/struct.Function.html).
 pub fn translate_module(data: &Vec<u8>,
                         runtime: &mut WasmRuntime)
                         -> Result<Vec<Function>, String> {
@@ -53,6 +55,9 @@ pub fn translate_module(data: &Vec<u8>,
                                 }
                                 Import::Global(glob) => {
                                     runtime.declare_global(glob);
+                                }
+                                Import::Table(tab) => {
+                                    runtime.declare_table(tab);
                                 }
                             }
                         }
@@ -120,7 +125,13 @@ pub fn translate_module(data: &Vec<u8>,
                 next_input = ParserInput::SkipSection;
             }
             ParserState::BeginSection { code: SectionCode::Element, .. } => {
-                next_input = ParserInput::SkipSection;
+                match parse_elements_section(&mut parser, runtime) {
+                    Ok(()) => (),
+                    Err(SectionParsingError::WrongSectionContent()) => {
+                        return Err(String::from("wrong content in the element section"))
+                    }
+                }
+                next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Data, .. } => {
                 // TODO: handle it with runtime

@@ -2,7 +2,7 @@ use wasmparser;
 use cretonne;
 use std::mem;
 use std::u32;
-use runtime::{Global, Memory};
+use runtime::{Global, Memory, Table};
 
 /// Struct that models Wasm imports
 #[derive(Debug,Clone,Copy)]
@@ -10,6 +10,7 @@ pub enum Import {
     Function { sig_index: u32 },
     Memory(Memory),
     Global(Global),
+    Table(Table),
 }
 
 // An opaque reference to local variable in wasm.
