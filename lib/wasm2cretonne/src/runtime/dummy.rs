@@ -1,5 +1,5 @@
 use runtime::{Global, Table, WasmRuntime, Memory};
-use translation_utils::Local;
+use translation_utils::{Local, GlobalIndex, TableIndex, FunctionIndex};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, InstBuilder, SigRef};
 use cretonne::ir::immediates::{Ieee32, Ieee64};
@@ -20,7 +20,7 @@ impl DummyRuntime {
 impl WasmRuntime for DummyRuntime {
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
-                            global_index: u32)
+                            global_index: GlobalIndex)
                             -> Value {
         let ref glob = self.globals.get(global_index as usize).unwrap();
         match glob.ty {
@@ -32,7 +32,7 @@ impl WasmRuntime for DummyRuntime {
         }
     }
 
-    fn translate_set_global(&self, _: &mut FunctionBuilder<Local>, _: u32, _: Value) {
+    fn translate_set_global(&self, _: &mut FunctionBuilder<Local>, _: GlobalIndex, _: Value) {
         // We do nothing
     }
     fn translate_grow_memory(&self, _: &mut FunctionBuilder<Local>, _: Value) {
@@ -57,7 +57,7 @@ impl WasmRuntime for DummyRuntime {
     fn declare_table(&mut self, _: Table) {
         //We do nothing
     }
-    fn declare_table_elements(&mut self, _: u32, _: u32, _: &[u32]) {
+    fn declare_table_elements(&mut self, _: TableIndex, _: usize, _: &[FunctionIndex]) {
         //We do nothing
     }
     fn declare_memory(&mut self, _: Memory) {

@@ -2,7 +2,7 @@
 //! trait `WasmRuntime`.
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, Type, SigRef};
-use translation_utils::Local;
+use translation_utils::{Local, FunctionIndex, TableIndex, GlobalIndex};
 
 
 /// Struct that models Wasm globals
@@ -27,8 +27,8 @@ pub enum GlobalInit {
 #[derive(Debug,Clone,Copy)]
 pub struct Table {
     pub ty: TableElementType,
-    pub size: u32,
-    pub maximum: Option<u32>,
+    pub size: usize,
+    pub maximum: Option<usize>,
 }
 
 #[derive(Debug,Clone,Copy)]
@@ -40,25 +40,28 @@ pub enum TableElementType {
 /// Struct that models the Wasm linear memory
 #[derive(Debug,Clone,Copy)]
 pub struct Memory {
-    pub size: u32,
-    pub maximum: Option<u32>,
+    pub size: usize,
+    pub maximum: Option<usize>,
 }
 
 pub trait WasmRuntime {
     fn declare_global(&mut self, global: Global);
     fn declare_table(&mut self, table: Table);
-    fn declare_table_elements(&mut self, table_index: u32, offset: u32, elements: &[u32]);
+    fn declare_table_elements(&mut self,
+                              table_index: TableIndex,
+                              offset: usize,
+                              elements: &[FunctionIndex]);
     fn declare_memory(&mut self, memory: Memory);
 
     fn instantiate(&mut self);
 
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
-                            global_index: u32)
+                            global_index: GlobalIndex)
                             -> Value;
     fn translate_set_global(&self,
                             builder: &mut FunctionBuilder<Local>,
-                            global_index: u32,
+                            global_index: GlobalIndex,
                             val: Value);
     fn translate_grow_memory(&self, builder: &mut FunctionBuilder<Local>, val: Value);
     fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value;

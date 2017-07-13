@@ -2,7 +2,7 @@ use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
                           parse_global_section, parse_table_section, parse_elements_section};
-use translation_utils::{type_to_type, Import};
+use translation_utils::{type_to_type, Import, SignatureIndex, FunctionIndex};
 use cretonne::ir::{Function, Type};
 use code_translator::translate_function_body;
 use cton_frontend::ILBuilder;
@@ -20,10 +20,10 @@ pub fn translate_module(data: &Vec<u8>,
         ref s @ _ => panic!("modules should begin properly: {:?}", s),
     }
     let mut signatures = None;
-    let mut functions: Option<Vec<u32>> = None;
-    let mut exports: Option<HashMap<u32, String>> = None;
+    let mut functions: Option<Vec<SignatureIndex>> = None;
+    let mut exports: Option<HashMap<FunctionIndex, String>> = None;
     let mut next_input = ParserInput::Default;
-    let mut function_index: u32 = 0;
+    let mut function_index: FunctionIndex = 0;
     loop {
         match *parser.read_with_input(next_input) {
             ParserState::BeginSection { code: SectionCode::Type, .. } => {
@@ -42,9 +42,9 @@ pub fn translate_module(data: &Vec<u8>,
                             match import {
                                 Import::Function { sig_index } => {
                                     functions = match functions {
-                                        None => Some(vec![sig_index]),
+                                        None => Some(vec![sig_index as SignatureIndex]),
                                         Some(mut funcs) => {
-                                            funcs.push(sig_index);
+                                            funcs.push(sig_index as SignatureIndex);
                                             Some(funcs)
                                         }
                                     };
@@ -162,12 +162,12 @@ pub fn translate_module(data: &Vec<u8>,
     let mut il_builder = ILBuilder::new();
     runtime.instantiate();
     loop {
-        let locals: Vec<(u32, Type)> = match *parser.read() {
+        let locals: Vec<(usize, Type)> = match *parser.read() {
             ParserState::BeginFunctionBody { ref locals, .. } => {
                 locals
                     .iter()
                     .map(|&(index, ref ty)| {
-                             (index,
+                             (index as usize,
                               match type_to_type(ty) {
                                   Ok(ty) => ty,
                                   Err(()) => panic!("unsupported type for local variable"),

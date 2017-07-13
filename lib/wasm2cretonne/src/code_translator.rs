@@ -6,7 +6,8 @@ use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
-use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types, Local};
+use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
+                        Local, GlobalIndex, FunctionIndex, SignatureIndex};
 use std::collections::{HashMap, HashSet};
 use runtime::WasmRuntime;
 use std::u32;
@@ -94,12 +95,12 @@ impl FunctionImports {
 
 /// Returns a well-formed Cretonne IL function from a wasm function body and a signature.
 pub fn translate_function_body(parser: &mut Parser,
-                               function_index: u32,
+                               function_index: FunctionIndex,
                                sig: Signature,
-                               locals: &Vec<(u32, Type)>,
-                               exports: &Option<HashMap<u32, String>>,
+                               locals: &Vec<(usize, Type)>,
+                               exports: &Option<HashMap<FunctionIndex, String>>,
                                signatures: &Vec<Signature>,
-                               functions: &Vec<u32>,
+                               functions: &Vec<SignatureIndex>,
                                il_builder: &mut ILBuilder<Local>,
                                runtime: &WasmRuntime)
                                -> Result<Function, String> {
@@ -313,9 +314,9 @@ fn translate_operator(op: &Operator,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
                       sig: &Signature,
-                      functions: &Vec<u32>,
+                      functions: &Vec<SignatureIndex>,
                       signatures: &Vec<Signature>,
-                      exports: &Option<HashMap<u32, String>>,
+                      exports: &Option<HashMap<FunctionIndex, String>>,
                       func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
@@ -325,12 +326,12 @@ fn translate_operator(op: &Operator,
             builder.def_var(Local(local_index), val);
         }
         Operator::GetGlobal { global_index } => {
-            let val = runtime.translate_get_global(builder, global_index);
+            let val = runtime.translate_get_global(builder, global_index as GlobalIndex);
             stack.push(val);
         }
         Operator::SetGlobal { global_index } => {
             let val = stack.pop().unwrap();
-            runtime.translate_set_global(builder, global_index, val);
+            runtime.translate_set_global(builder, global_index as GlobalIndex, val);
         }
         Operator::TeeLocal { local_index } => {
             let val = stack.last().unwrap();
@@ -1093,17 +1094,20 @@ fn translate_operator(op: &Operator,
     }
 }
 
-fn args_count(index: usize, functions: &Vec<u32>, signatures: &Vec<Signature>) -> usize {
+fn args_count(index: FunctionIndex,
+              functions: &Vec<SignatureIndex>,
+              signatures: &Vec<Signature>)
+              -> usize {
     signatures[functions[index] as usize].argument_types.len()
 }
 
 // Given a index in the function index space, search for it in the function imports and if it is
 // not there add it to the function imports.
-fn find_function_import(index: usize,
+fn find_function_import(index: FunctionIndex,
                         builder: &mut FunctionBuilder<Local>,
                         func_imports: &mut FunctionImports,
-                        functions: &Vec<u32>,
-                        exports: &Option<HashMap<u32, String>>,
+                        functions: &Vec<SignatureIndex>,
+                        exports: &Option<HashMap<FunctionIndex, String>>,
                         signatures: &Vec<Signature>)
                         -> FuncRef {
     match func_imports.functions.get(&index) {
@@ -1119,7 +1123,7 @@ fn find_function_import(index: usize,
                                             name: match exports {
                                                 &None => FunctionName::new(""),
                                                 &Some(ref exports) => {
-                                                    match exports.get(&(index as u32)) {
+                                                    match exports.get(&index) {
                                                         None => FunctionName::new(""),
                                                         Some(name) => {
                                                             FunctionName::new(name.clone())
@@ -1144,7 +1148,7 @@ fn find_function_import(index: usize,
                                     name: match exports {
                                         &None => FunctionName::new(""),
                                         &Some(ref exports) => {
-                                            match exports.get(&(index as u32)) {
+                                            match exports.get(&index) {
                                                 None => FunctionName::new(""),
                                                 Some(name) => FunctionName::new(name.clone()),
                                             }
@@ -1156,7 +1160,7 @@ fn find_function_import(index: usize,
     local_func_index
 }
 
-fn find_signature_import(sig_index: usize,
+fn find_signature_import(sig_index: SignatureIndex,
                          builder: &mut FunctionBuilder<Local>,
                          func_imports: &mut FunctionImports,
                          signatures: &Vec<Signature>)

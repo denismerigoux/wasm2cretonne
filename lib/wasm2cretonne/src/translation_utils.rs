@@ -4,6 +4,13 @@ use std::mem;
 use std::u32;
 use runtime::{Global, Memory, Table};
 
+pub type FunctionIndex = usize;
+pub type TableIndex = usize;
+pub type GlobalIndex = usize;
+pub type RawByte = u8;
+pub type Address = u32;
+pub type SignatureIndex = usize;
+
 /// Struct that models Wasm imports
 #[derive(Debug,Clone,Copy)]
 pub enum Import {

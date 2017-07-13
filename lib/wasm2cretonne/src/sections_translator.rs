@@ -1,4 +1,4 @@
-use translation_utils::{type_to_type, Import};
+use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, SignatureIndex};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
@@ -67,8 +67,8 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                 ty: ImportSectionEntryType::Memory(MemoryType { limits: ref memlimits }), ..
             } => {
                 imports.push(Import::Memory(Memory {
-                                                size: memlimits.initial,
-                                                maximum: memlimits.maximum,
+                                                size: memlimits.initial as usize,
+                                                maximum: memlimits.maximum.map(|x| x as usize),
                                             }))
             }
             ParserState::ImportSectionEntry {
@@ -88,8 +88,8 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                                                    Ok(t) => TableElementType::Val(t),
                                                    Err(()) => TableElementType::Func(),
                                                },
-                                               size: tab.limits.initial,
-                                               maximum: tab.limits.maximum,
+                                               size: tab.limits.initial as usize,
+                                               maximum: tab.limits.maximum.map(|x| x as usize),
                                            }));
             }
             ParserState::EndSection => break,
@@ -100,11 +100,12 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
 }
 
 /// Retrieves the correspondances between functions and signatures from the function section
-pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<u32>, SectionParsingError> {
+pub fn parse_function_section(parser: &mut Parser)
+                              -> Result<Vec<SignatureIndex>, SectionParsingError> {
     let mut funcs = Vec::new();
     loop {
         match *parser.read() {
-            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as u32),
+            ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as SignatureIndex),
             ParserState::EndSection => break,
             _ => return Err(SectionParsingError::WrongSectionContent()),
         };
@@ -114,8 +115,8 @@ pub fn parse_function_section(parser: &mut Parser) -> Result<Vec<u32>, SectionPa
 
 /// Retrieves the names of the functions from the export section
 pub fn parse_export_section(parser: &mut Parser)
-                            -> Result<HashMap<u32, String>, SectionParsingError> {
-    let mut exports: HashMap<u32, String> = HashMap::new();
+                            -> Result<HashMap<FunctionIndex, String>, SectionParsingError> {
+    let mut exports: HashMap<FunctionIndex, String> = HashMap::new();
     loop {
         match *parser.read() {
             ParserState::ExportSectionEntry {
@@ -125,10 +126,11 @@ pub fn parse_export_section(parser: &mut Parser)
             } => {
                 match kind {
                     &ExternalKind::Function => {
-                        exports.insert(index, String::from(from_utf8(field).unwrap()));
+                        exports.insert(index as FunctionIndex,
+                                       String::from(from_utf8(field).unwrap()));
                         ()
                     }
-                    _ => (),//TODO: deal with other times of exports
+                    _ => (),//TODO: deal with other kind of exports
                 }
             }
             ParserState::EndSection => break,
@@ -148,8 +150,8 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
         match *parser.read() {
             ParserState::MemorySectionEntry(ref ty) => {
                 memories.push(Memory {
-                                  size: ty.limits.initial,
-                                  maximum: ty.limits.maximum,
+                                  size: ty.limits.initial as usize,
+                                  maximum: ty.limits.maximum.map(|x| x as usize),
                               })
             }
             ParserState::EndSection => break,
@@ -221,8 +223,8 @@ pub fn parse_table_section(parser: &mut Parser,
                                               Ok(t) => TableElementType::Val(t),
                                               Err(()) => TableElementType::Func(),
                                           },
-                                          size: table.limits.initial,
-                                          maximum: table.limits.maximum,
+                                          size: table.limits.initial as usize,
+                                          maximum: table.limits.maximum.map(|x| x as usize),
                                       })
             }
             ParserState::EndSection => break,
@@ -238,49 +240,33 @@ pub fn parse_elements_section(parser: &mut Parser,
                               -> Result<(), SectionParsingError> {
     loop {
         let table_index = match *parser.read() {
-            ParserState::BeginElementSectionEntry(ref table_index) => *table_index,
+            ParserState::BeginElementSectionEntry(ref table_index) => *table_index as TableIndex,
             ParserState::EndSection => break,
-            ref s @ _ => {
-                println!("1 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::BeginInitExpressionBody => (),
-            ref s @ _ => {
-                println!("2 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         let offset = match *parser.read() {
-            ParserState::InitExpressionOperator(Operator::I32Const { value }) => value,
-            ref s @ _ => {
-                println!("3 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            ParserState::InitExpressionOperator(Operator::I32Const { value }) => value as usize,
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::EndInitExpressionBody => (),
-            ref s @ _ => {
-                println!("2 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::ElementSectionEntryBody(ref elements) => {
-                runtime.declare_table_elements(table_index, offset as u32, elements.as_slice())
+                let elems: Vec<FunctionIndex> =
+                    elements.iter().map(|&x| x as FunctionIndex).collect();
+                runtime.declare_table_elements(table_index, offset, elems.as_slice())
             }
-            ref s @ _ => {
-                println!("2 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::EndElementSectionEntry => (),
-            ref s @ _ => {
-                println!("3 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
     }
     Ok(())
