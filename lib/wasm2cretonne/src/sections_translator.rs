@@ -242,19 +242,31 @@ pub fn parse_elements_section(parser: &mut Parser,
         let table_index = match *parser.read() {
             ParserState::BeginElementSectionEntry(ref table_index) => *table_index as TableIndex,
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("1 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
         match *parser.read() {
             ParserState::BeginInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("2 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
         let offset = match *parser.read() {
             ParserState::InitExpressionOperator(Operator::I32Const { value }) => value as usize,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("3 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
         match *parser.read() {
             ParserState::EndInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("4 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
         match *parser.read() {
             ParserState::ElementSectionEntryBody(ref elements) => {
@@ -262,11 +274,17 @@ pub fn parse_elements_section(parser: &mut Parser,
                     elements.iter().map(|&x| x as FunctionIndex).collect();
                 runtime.declare_table_elements(table_index, offset, elems.as_slice())
             }
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("5 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
         match *parser.read() {
             ParserState::EndElementSectionEntry => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => {
+                println!("6 - {:?}", s);
+                return Err(SectionParsingError::WrongSectionContent());
+            }
         };
     }
     Ok(())

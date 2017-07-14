@@ -1,7 +1,8 @@
 use runtime::runtime::{Global, GlobalInit, Table, Memory, WasmRuntime};
 use translation_utils::{Local, FunctionIndex, GlobalIndex, TableIndex, RawByte, Address};
 use cton_frontend::FunctionBuilder;
-use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef};
+use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, FunctionName,
+                   Signature, ArgumentType};
 use cretonne::ir::types::*;
 use cretonne::ir::condcodes::IntCC;
 use cretonne::ir::immediates::Offset32;
@@ -43,6 +44,8 @@ pub struct StandaloneRuntime {
     tables: Vec<TablesData>,
     memories: Vec<MemoryData>,
     instantiated: bool,
+    has_current_memory: Option<FuncRef>,
+    has_grow_memory: Option<FuncRef>,
 }
 
 impl StandaloneRuntime {
@@ -56,6 +59,8 @@ impl StandaloneRuntime {
             tables: Vec::new(),
             memories: Vec::new(),
             instantiated: false,
+            has_current_memory: None,
+            has_grow_memory: None,
         }
     }
 }
@@ -85,13 +90,50 @@ impl WasmRuntime for StandaloneRuntime {
         let addr_val = builder.ins().iconst(I64, addr);
         builder.ins().store(memflags, val, addr_val, memoffset);
     }
-    fn translate_grow_memory(&self, _: &mut FunctionBuilder<Local>, _: Value) {
+    fn translate_grow_memory(&mut self,
+                             builder: &mut FunctionBuilder<Local>,
+                             pages: Value)
+                             -> Value {
         debug_assert!(self.instantiated);
-        unimplemented!()
+        let grow_mem_func = match self.has_grow_memory {
+            Some(grow_mem_func) => grow_mem_func,
+            None => {
+                let sig_ref =
+                    builder.import_signature(Signature {
+                                                 argument_bytes: None,
+                                                 argument_types: vec![ArgumentType::new(I32)],
+                                                 return_types: vec![ArgumentType::new(I32)],
+                                             });
+                builder.import_function(ExtFuncData {
+                                            name: FunctionName::new("current_memory"),
+                                            signature: sig_ref,
+                                        })
+            }
+        };
+        self.has_grow_memory = Some(grow_mem_func);
+        let call_inst = builder.ins().call(grow_mem_func, &[pages]);
+        *builder.inst_results(call_inst).first().unwrap()
     }
-    fn translate_current_memory(&self, _: &mut FunctionBuilder<Local>) -> Value {
+    fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value {
         debug_assert!(self.instantiated);
-        unimplemented!()
+        let cur_mem_func = match self.has_current_memory {
+            Some(cur_mem_func) => cur_mem_func,
+            None => {
+                let sig_ref = builder.import_signature(Signature {
+                                                           argument_bytes: None,
+                                                           argument_types: Vec::new(),
+                                                           return_types:
+                                                               vec![ArgumentType::new(I32)],
+                                                       });
+                builder.import_function(ExtFuncData {
+                                            name: FunctionName::new("current_memory"),
+                                            signature: sig_ref,
+                                        })
+            }
+        };
+        self.has_current_memory = Some(cur_mem_func);
+        let call_inst = builder.ins().call(cur_mem_func, &[]);
+        *builder.inst_results(call_inst).first().unwrap()
     }
     fn translate_call_indirect<'a>(&self,
                                    builder: &'a mut FunctionBuilder<Local>,
@@ -212,6 +254,10 @@ impl WasmRuntime for StandaloneRuntime {
                 .data
                 .resize((memory.info.size as usize) * PAGE_SIZE, 0);
         }
+    }
+    fn next_function(&mut self) {
+        self.has_current_memory = None;
+        self.has_grow_memory = None;
     }
     fn declare_global(&mut self, global: Global) {
         debug_assert!(!self.instantiated);

@@ -54,6 +54,7 @@ pub trait WasmRuntime {
     fn declare_memory(&mut self, memory: Memory);
 
     fn instantiate(&mut self);
+    fn next_function(&mut self);
 
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
@@ -63,8 +64,8 @@ pub trait WasmRuntime {
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex,
                             val: Value);
-    fn translate_grow_memory(&self, builder: &mut FunctionBuilder<Local>, val: Value);
-    fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value;
+    fn translate_grow_memory(&mut self, builder: &mut FunctionBuilder<Local>, val: Value) -> Value;
+    fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value;
     fn translate_call_indirect<'a>(&self,
                                    builder: &'a mut FunctionBuilder<Local>,
                                    sig_ref: SigRef,

@@ -102,8 +102,9 @@ pub fn translate_function_body(parser: &mut Parser,
                                signatures: &Vec<Signature>,
                                functions: &Vec<SignatureIndex>,
                                il_builder: &mut ILBuilder<Local>,
-                               runtime: &WasmRuntime)
+                               runtime: &mut WasmRuntime)
                                -> Result<Function, String> {
+    runtime.next_function();
     let mut func = Function::new();
     let args_num: usize = sig.argument_types.len();
     let args_types: Vec<Type> = sig.argument_types
@@ -169,7 +170,8 @@ pub fn translate_function_body(parser: &mut Parser,
                            });
         loop {
             let parser_state = parser.read();
-            // println!("Now translating: {:?} ({},{}), stack: {:?}",
+            // println!("{}\nNow translating: {:?} ({},{}), stack: {:?}",
+            //          builder.display(None),
             //          parser_state,
             //          state.real_unreachable_stack_depth,
             //          state.phantom_unreachable_stack_depth,
@@ -309,7 +311,7 @@ pub fn translate_function_body(parser: &mut Parser,
 /// a return.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
-                      runtime: &WasmRuntime,
+                      runtime: &mut WasmRuntime,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
@@ -596,7 +598,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::GrowMemory { reserved: _ } => {
             let val = stack.pop().unwrap();
-            runtime.translate_grow_memory(builder, val);
+            stack.push(runtime.translate_grow_memory(builder, val));
         }
         Operator::CurrentMemory { reserved: _ } => {
             stack.push(runtime.translate_current_memory(builder));

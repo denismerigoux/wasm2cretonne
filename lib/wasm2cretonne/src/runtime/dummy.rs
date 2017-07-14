@@ -35,10 +35,10 @@ impl WasmRuntime for DummyRuntime {
     fn translate_set_global(&self, _: &mut FunctionBuilder<Local>, _: GlobalIndex, _: Value) {
         // We do nothing
     }
-    fn translate_grow_memory(&self, _: &mut FunctionBuilder<Local>, _: Value) {
-        // We do nothing
+    fn translate_grow_memory(&mut self, builder: &mut FunctionBuilder<Local>, _: Value) -> Value {
+        builder.ins().iconst(I32, -1)
     }
-    fn translate_current_memory(&self, builder: &mut FunctionBuilder<Local>) -> Value {
+    fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value {
         builder.ins().iconst(I32, -1)
     }
     fn translate_call_indirect<'a>(&self,
@@ -65,6 +65,9 @@ impl WasmRuntime for DummyRuntime {
     }
 
     fn instantiate(&mut self) {
+        // We do nothing
+    }
+    fn next_function(&mut self) {
         // We do nothing
     }
 }
