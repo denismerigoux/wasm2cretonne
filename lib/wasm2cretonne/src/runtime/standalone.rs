@@ -15,17 +15,33 @@ enum TableElement {
     Function(FunctionIndex),
 }
 
+struct GlobalInfo {
+    global: Global,
+    offset: usize,
+}
+
+struct GlobalsData {
+    data: Vec<RawByte>,
+    info: Vec<GlobalInfo>,
+}
+
+struct TablesData {
+    addresses: Vec<Address>,
+    elements: Vec<TableElement>,
+    info: Table,
+}
+
+struct MemoryData {
+    data: Vec<RawByte>,
+    info: Memory,
+}
+
 const PAGE_SIZE: usize = 65536;
 
 pub struct StandaloneRuntime {
-    globals: Vec<Global>,
-    globals_data: Vec<RawByte>,
-    globals_offsets: Vec<usize>,
-    tables: Vec<Table>,
-    tables_data: Vec<Vec<Address>>,
-    tables_elements: Vec<Vec<TableElement>>,
-    memories: Vec<Memory>,
-    memories_data: Vec<Vec<RawByte>>,
+    globals: GlobalsData,
+    tables: Vec<TablesData>,
+    memories: Vec<MemoryData>,
     instantiated: bool,
 }
 
@@ -33,15 +49,13 @@ impl StandaloneRuntime {
     /// Allocates the runtime data structures
     pub fn new() -> StandaloneRuntime {
         StandaloneRuntime {
-            globals: Vec::new(),
-            globals_data: Vec::new(),
-            globals_offsets: Vec::new(),
+            globals: GlobalsData {
+                data: Vec::new(),
+                info: Vec::new(),
+            },
             tables: Vec::new(),
-            tables_data: Vec::new(),
-            tables_elements: Vec::new(),
             memories: Vec::new(),
             instantiated: false,
-            memories_data: Vec::new(),
         }
     }
 }
@@ -52,11 +66,11 @@ impl WasmRuntime for StandaloneRuntime {
                             global_index: GlobalIndex)
                             -> Value {
         debug_assert!(self.instantiated);
-        let ty = self.globals[global_index as usize].ty;
-        let offset = self.globals_offsets[global_index as usize];
+        let ty = self.globals.info[global_index as usize].global.ty;
+        let offset = self.globals.info[global_index as usize].offset;
         let memflags = MemFlags::new();
         let memoffset = Offset32::new(offset as i32);
-        let addr: i64 = unsafe { transmute(self.globals_data.as_ptr()) };
+        let addr: i64 = unsafe { transmute(self.globals.data.as_ptr()) };
         let addr_val = builder.ins().iconst(I64, addr);
         builder.ins().load(ty, memflags, addr_val, memoffset)
     }
@@ -64,10 +78,10 @@ impl WasmRuntime for StandaloneRuntime {
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex,
                             val: Value) {
-        let offset = self.globals_offsets[global_index as usize];
+        let offset = self.globals.info[global_index as usize].offset;
         let memflags = MemFlags::new();
         let memoffset = Offset32::new(offset as i32);
-        let addr: i64 = unsafe { transmute(self.globals_data.as_ptr()) };
+        let addr: i64 = unsafe { transmute(self.globals.data.as_ptr()) };
         let addr_val = builder.ins().iconst(I64, addr);
         builder.ins().store(memflags, val, addr_val, memoffset);
     }
@@ -87,7 +101,7 @@ impl WasmRuntime for StandaloneRuntime {
                                    -> &'a [Value] {
         let trap_ebb = builder.create_ebb();
         let continue_ebb = builder.create_ebb();
-        let size_val = builder.ins().iconst(I32, self.tables[0].size as i64);
+        let size_val = builder.ins().iconst(I32, self.tables[0].info.size as i64);
         let zero_val = builder.ins().iconst(I32, 0);
         builder
             .ins()
@@ -101,7 +115,7 @@ impl WasmRuntime for StandaloneRuntime {
                      &[]);
         builder.seal_block(trap_ebb);
         let offset_val = builder.ins().imul_imm(index_val, 4);
-        let base_table_addr: i64 = unsafe { transmute(self.tables_data[0].as_ptr()) };
+        let base_table_addr: i64 = unsafe { transmute(self.tables[0].addresses.as_ptr()) };
         let table_addr_val = builder.ins().iconst(I32, base_table_addr);
         let table_entry_addr_val = builder.ins().iadd(table_addr_val, offset_val);
         let memflags = MemFlags::new();
@@ -126,42 +140,45 @@ impl WasmRuntime for StandaloneRuntime {
         // At instantiation, we allocate memory for the globals, the memories and the tables
         // First the globals
         let mut globals_data_size = 0;
-        for global in self.globals.iter() {
-            self.globals_offsets.push(globals_data_size);
-            globals_data_size += global.ty.bytes() as usize;
+        for globalinfo in self.globals.info.iter_mut() {
+            globalinfo.offset = globals_data_size;
+            globals_data_size += globalinfo.global.ty.bytes() as usize;
         }
-        self.globals_data.resize(globals_data_size as usize, 0);
-        for (i, global) in self.globals.iter().enumerate() {
-            let offset = self.globals_offsets[i];
-            match global.initializer {
+        self.globals.data.resize(globals_data_size as usize, 0);
+        for globalinfo in self.globals.info.iter() {
+            match globalinfo.global.initializer {
                 GlobalInit::I32Const(val) => {
-                    self.globals_data
+                    self.globals
+                        .data
                         .as_mut_slice()
-                        .split_at_mut(offset as usize)
+                        .split_at_mut(globalinfo.offset as usize)
                         .1
                         .write_i32::<LittleEndian>(val)
                         .unwrap();
                 }
                 GlobalInit::I64Const(val) => {
-                    self.globals_data
+                    self.globals
+                        .data
                         .as_mut_slice()
-                        .split_at_mut(offset as usize)
+                        .split_at_mut(globalinfo.offset as usize)
                         .1
                         .write_i64::<LittleEndian>(val)
                         .unwrap();
                 }
                 GlobalInit::F32Const(val) => {
-                    self.globals_data
+                    self.globals
+                        .data
                         .as_mut_slice()
-                        .split_at_mut(offset as usize)
+                        .split_at_mut(globalinfo.offset as usize)
                         .1
                         .write_f32::<LittleEndian>(unsafe { transmute(val) })
                         .unwrap();
                 }
                 GlobalInit::F64Const(val) => {
-                    self.globals_data
+                    self.globals
+                        .data
                         .as_mut_slice()
-                        .split_at_mut(offset as usize)
+                        .split_at_mut(globalinfo.offset as usize)
                         .1
                         .write_f64::<LittleEndian>(unsafe { transmute(val) })
                         .unwrap();
@@ -171,38 +188,50 @@ impl WasmRuntime for StandaloneRuntime {
                     // TODO: support inter-module imports
                 }
                 GlobalInit::ImportRef(index) => {
-                    let ref_offset = self.globals_offsets[index];
-                    let size = global.ty.bytes();
+                    let ref_offset = self.globals.info[index].offset;
+                    let size = globalinfo.global.ty.bytes();
                     unsafe {
-                        let dst = self.globals_data.as_mut_ptr().offset(offset as isize);
-                        let src = self.globals_data.as_ptr().offset(ref_offset as isize);
+                        let dst = self.globals
+                            .data
+                            .as_mut_ptr()
+                            .offset(globalinfo.offset as isize);
+                        let src = self.globals.data.as_ptr().offset(ref_offset as isize);
                         copy_nonoverlapping(src, dst, size as usize)
                     }
                 }
             }
         }
         // Instantiating the tables
-        for (i, table) in self.tables.iter().enumerate() {
+        for table in self.tables.iter_mut() {
             // TODO: link with the actual adresses of the functions
-            self.tables_data[i].resize(table.size as usize, 0);
+            table.addresses.resize(table.info.size as usize, 0);
         }
         // Instantiating the memory
-        for (i, memory) in self.memories.iter().enumerate() {
-            self.memories_data[i].resize((memory.size as usize) * PAGE_SIZE, 0);
+        for memory in self.memories.iter_mut() {
+            memory
+                .data
+                .resize((memory.info.size as usize) * PAGE_SIZE, 0);
         }
     }
     fn declare_global(&mut self, global: Global) {
         debug_assert!(!self.instantiated);
-        self.globals.push(global);
+        self.globals
+            .info
+            .push(GlobalInfo {
+                      global: global,
+                      offset: 0,
+                  });
     }
     fn declare_table(&mut self, table: Table) {
         debug_assert!(!self.instantiated);
-        self.tables.push(table);
-        let mut elements_vec = Vec::new();
+        let mut elements_vec = Vec::with_capacity(table.size as usize);
         elements_vec.resize(table.size as usize, TableElement::Trap());
-        self.tables_elements.push(elements_vec);
-        self.tables_data
-            .push(Vec::with_capacity(table.size as usize));
+        self.tables
+            .push(TablesData {
+                      info: table,
+                      addresses: Vec::with_capacity(table.size as usize),
+                      elements: elements_vec,
+                  });
     }
     fn declare_table_elements(&mut self,
                               table_index: TableIndex,
@@ -210,14 +239,15 @@ impl WasmRuntime for StandaloneRuntime {
                               elements: &[FunctionIndex]) {
         debug_assert!(!self.instantiated);
         for (i, elt) in elements.iter().enumerate() {
-            self.tables_elements[table_index as usize][offset as usize + i] =
-                TableElement::Function(*elt);
+            self.tables[table_index].elements[offset as usize + i] = TableElement::Function(*elt);
         }
     }
     fn declare_memory(&mut self, memory: Memory) {
         debug_assert!(!self.instantiated);
-        self.memories.push(memory);
-        self.memories_data
-            .push(Vec::with_capacity(memory.size as usize));
+        self.memories
+            .push(MemoryData {
+                      info: memory,
+                      data: Vec::with_capacity(memory.size as usize),
+                  });
     }
 }
