@@ -21,6 +21,7 @@ pub fn translate_module(data: &Vec<u8>,
     }
     let mut signatures = None;
     let mut functions: Option<Vec<SignatureIndex>> = None;
+    let mut globals = Vec::new();
     let mut exports: Option<HashMap<FunctionIndex, String>> = None;
     let mut next_input = ParserInput::Default;
     let mut function_index: FunctionIndex = 0;
@@ -54,7 +55,8 @@ pub fn translate_module(data: &Vec<u8>,
                                     runtime.declare_memory(mem);
                                 }
                                 Import::Global(glob) => {
-                                    runtime.declare_global(glob);
+                                    runtime.declare_global(glob.clone());
+                                    globals.push(glob);
                                 }
                                 Import::Table(tab) => {
                                     runtime.declare_table(tab);
@@ -105,7 +107,7 @@ pub fn translate_module(data: &Vec<u8>,
             }
             ParserState::BeginSection { code: SectionCode::Global, .. } => {
                 match parse_global_section(&mut parser, runtime) {
-                    Ok(()) => (),
+                    Ok(mut globs) => globals.append(&mut globs),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the global section"))
                     }
@@ -125,7 +127,7 @@ pub fn translate_module(data: &Vec<u8>,
                 next_input = ParserInput::SkipSection;
             }
             ParserState::BeginSection { code: SectionCode::Element, .. } => {
-                match parse_elements_section(&mut parser, runtime) {
+                match parse_elements_section(&mut parser, runtime, &globals) {
                     Ok(()) => (),
                     Err(SectionParsingError::WrongSectionContent()) => {
                         return Err(String::from("wrong content in the element section"))

@@ -164,7 +164,8 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
 /// Retrieves the size and maximum fields of memories from the memory section
 pub fn parse_global_section(parser: &mut Parser,
                             runtime: &mut WasmRuntime)
-                            -> Result<(), SectionParsingError> {
+                            -> Result<Vec<Global>, SectionParsingError> {
+    let mut globals = Vec::new();
     loop {
         let (content_type, mutability) = match *parser.read() {
             ParserState::BeginGlobalSectionEntry(ref ty) => (ty.content_type, ty.mutability),
@@ -198,17 +199,19 @@ pub fn parse_global_section(parser: &mut Parser,
             ParserState::EndInitExpressionBody => (),
             _ => return Err(SectionParsingError::WrongSectionContent()),
         }
-        runtime.declare_global(Global {
-                                   ty: type_to_type(&content_type).unwrap(),
-                                   mutability: mutability != 0,
-                                   initializer: initializer,
-                               });
+        let global = Global {
+            ty: type_to_type(&content_type).unwrap(),
+            mutability: mutability != 0,
+            initializer: initializer,
+        };
+        runtime.declare_global(global.clone());
+        globals.push(global);
         match *parser.read() {
             ParserState::EndGlobalSectionEntry => (),
             _ => return Err(SectionParsingError::WrongSectionContent()),
         }
     }
-    Ok(())
+    Ok(globals)
 }
 
 /// Retrieves the tables from the table section
@@ -236,37 +239,33 @@ pub fn parse_table_section(parser: &mut Parser,
 
 /// Retrieves the tables from the table section
 pub fn parse_elements_section(parser: &mut Parser,
-                              runtime: &mut WasmRuntime)
+                              runtime: &mut WasmRuntime,
+                              globals: &Vec<Global>)
                               -> Result<(), SectionParsingError> {
     loop {
         let table_index = match *parser.read() {
             ParserState::BeginElementSectionEntry(ref table_index) => *table_index as TableIndex,
             ParserState::EndSection => break,
-            ref s @ _ => {
-                println!("1 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::BeginInitExpressionBody => (),
-            ref s @ _ => {
-                println!("2 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         let offset = match *parser.read() {
             ParserState::InitExpressionOperator(Operator::I32Const { value }) => value as usize,
-            ref s @ _ => {
-                println!("3 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
+            ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
+                match globals[global_index as usize].initializer {
+                    GlobalInit::I32Const(val) => val as usize,
+                    GlobalInit::Import() => 0, // TODO: add runtime support
+                    _ => panic!("should not happen"),
+                }
             }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::EndInitExpressionBody => (),
-            ref s @ _ => {
-                println!("4 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::ElementSectionEntryBody(ref elements) => {
@@ -274,17 +273,11 @@ pub fn parse_elements_section(parser: &mut Parser,
                     elements.iter().map(|&x| x as FunctionIndex).collect();
                 runtime.declare_table_elements(table_index, offset, elems.as_slice())
             }
-            ref s @ _ => {
-                println!("5 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
         match *parser.read() {
             ParserState::EndElementSectionEntry => (),
-            ref s @ _ => {
-                println!("6 - {:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            _ => return Err(SectionParsingError::WrongSectionContent()),
         };
     }
     Ok(())
