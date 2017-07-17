@@ -4,16 +4,18 @@ use sections_translator::{SectionParsingError, parse_function_signatures, parse_
                           parse_global_section, parse_table_section, parse_elements_section};
 use translation_utils::{type_to_type, Import, SignatureIndex, FunctionIndex};
 use cretonne::ir::{Function, Type};
-use code_translator::translate_function_body;
+use code_translator::{translate_function_body, FunctionImports};
 use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 use runtime::WasmRuntime;
 
 /// Translate a sequence of bytes forming a valid Wasm binary into a list of valid Cretonne IL
 /// [`Function`](../cretonne/ir/function/struct.Function.html).
+/// Returns the functions and also the mappings for imported functions and signature between the
+/// indexes in the wasm module and the indexes inside each functions.
 pub fn translate_module(data: &Vec<u8>,
                         runtime: &mut WasmRuntime)
-                        -> Result<Vec<Function>, String> {
+                        -> Result<Vec<(Function, FunctionImports)>, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
         ParserState::BeginWasm { .. } => {}
@@ -160,9 +162,9 @@ pub fn translate_module(data: &Vec<u8>,
         None => return Err(String::from("missing a function section")),
         Some(functions) => functions,
     };
-    let mut il_functions: Vec<Function> = Vec::new();
+    let mut il_functions: Vec<(Function, FunctionImports)> = Vec::new();
     let mut il_builder = ILBuilder::new();
-    runtime.instantiate();
+    runtime.begin_translation();
     loop {
         let locals: Vec<(usize, Type)> = match *parser.read() {
             ParserState::BeginFunctionBody { ref locals, .. } => {
@@ -190,7 +192,7 @@ pub fn translate_module(data: &Vec<u8>,
                                       &functions,
                                       &mut il_builder,
                                       runtime) {
-            Ok(il_func) => il_functions.push(il_func),
+            Ok((il_func, imports)) => il_functions.push((il_func, imports)),
             Err(s) => return Err(s),
         }
         function_index += 1;

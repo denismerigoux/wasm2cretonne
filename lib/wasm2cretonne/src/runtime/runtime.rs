@@ -53,9 +53,8 @@ pub trait WasmRuntime {
                               elements: &[FunctionIndex]);
     fn declare_memory(&mut self, memory: Memory);
 
-    fn instantiate(&mut self);
+    fn begin_translation(&mut self);
     fn next_function(&mut self);
-
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex)

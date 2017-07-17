@@ -11,6 +11,7 @@ mod sections_translator;
 
 pub use module_translator::translate_module;
 pub use runtime::{WasmRuntime, DummyRuntime, StandaloneRuntime};
+pub use code_translator::FunctionImports;
 
 /// Version number of the cretonne crate.
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");

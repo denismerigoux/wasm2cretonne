@@ -105,7 +105,7 @@ impl WasmRuntime for StandaloneRuntime {
                                                  return_types: vec![ArgumentType::new(I32)],
                                              });
                 builder.import_function(ExtFuncData {
-                                            name: FunctionName::new("current_memory"),
+                                            name: FunctionName::new("grow_memory"),
                                             signature: sig_ref,
                                         })
             }
@@ -176,7 +176,7 @@ impl WasmRuntime for StandaloneRuntime {
         builder.inst_results(call_inst)
     }
 
-    fn instantiate(&mut self) {
+    fn begin_translation(&mut self) {
         debug_assert!(!self.instantiated);
         self.instantiated = true;
         // At instantiation, we allocate memory for the globals, the memories and the tables

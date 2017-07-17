@@ -2,7 +2,6 @@ use cretonne::ir::{Function, Signature, Value, Type, InstBuilder, FunctionName, 
                    SigRef, ExtFuncData, Inst, MemFlags};
 use cretonne::ir::types::*;
 use cretonne::ir::immediates::{Ieee32, Ieee64, Offset32};
-use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
 use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
@@ -78,10 +77,11 @@ struct TranslationState {
     br_table_reachable_ebbs: HashSet<Ebb>,
 }
 
-struct FunctionImports {
+#[derive(Clone,Debug)]
+pub struct FunctionImports {
     /// Mappings index in function index space -> index in function local imports
-    functions: HashMap<usize, FuncRef>,
-    signatures: HashMap<usize, SigRef>,
+    pub functions: HashMap<FunctionIndex, FuncRef>,
+    pub signatures: HashMap<SignatureIndex, SigRef>,
 }
 
 impl FunctionImports {
@@ -103,7 +103,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                functions: &Vec<SignatureIndex>,
                                il_builder: &mut ILBuilder<Local>,
                                runtime: &mut WasmRuntime)
-                               -> Result<Function, String> {
+                               -> Result<(Function, FunctionImports), String> {
     runtime.next_function();
     let mut func = Function::new();
     let args_num: usize = sig.argument_types.len();
@@ -297,14 +297,7 @@ pub fn translate_function_body(parser: &mut Parser,
             builder.ins().return_(return_vals.as_slice());
         }
     }
-    // TODO: remove the verification in production
-    match verify_function(&func, None) {
-        Ok(()) => {Ok(func)}
-        Err(err) => {
-            println!("{}", func.display(None));
-            Err(format!("({}) {}", err.location, err.message))
-        }
-    }
+    Ok((func, func_imports))
 }
 
 /// Translates wasm operators into Cretonne IL instructions. Returns `true` if it inserted

@@ -64,7 +64,7 @@ impl WasmRuntime for DummyRuntime {
         //We do nothing
     }
 
-    fn instantiate(&mut self) {
+    fn begin_translation(&mut self) {
         // We do nothing
     }
     fn next_function(&mut self) {

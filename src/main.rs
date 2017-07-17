@@ -8,8 +8,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::translate_module;
-use wasm2cretonne::StandaloneRuntime;
+use wasm2cretonne::{translate_module, StandaloneRuntime, FunctionImports};
 use cretonne::ir::Function;
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -131,7 +130,7 @@ fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), S
 
 fn pretty_print_translation(filename: &String,
                             data: &Vec<u8>,
-                            funcs: &Vec<Function>,
+                            funcs: &Vec<(Function, FunctionImports)>,
                             writer_wast: &mut Write,
                             writer_cretonne: &mut Write)
                             -> Result<(), io::Error> {
@@ -186,7 +185,7 @@ fn pretty_print_translation(filename: &String,
                 };
             }
         }
-        let mut function_string = format!("  {}", funcs[function_index].display(None));
+        let mut function_string = format!("  {}", funcs[function_index].0.display(None));
         function_string.pop();
         let function_str = str::replace(function_string.as_str(), "\n", "\n  ");
         terminal.fg(term::color::CYAN).unwrap();
