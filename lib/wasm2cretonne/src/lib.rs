@@ -1,7 +1,6 @@
 extern crate wasmparser;
 extern crate cton_frontend;
 extern crate cretonne;
-extern crate byteorder;
 
 mod module_translator;
 mod translation_utils;
@@ -10,8 +9,6 @@ mod runtime;
 mod sections_translator;
 
 pub use module_translator::translate_module;
-pub use runtime::{WasmRuntime, DummyRuntime, StandaloneRuntime};
+pub use runtime::{WasmRuntime, DummyRuntime, Global, GlobalInit, Table, Memory};
 pub use code_translator::FunctionImports;
-
-/// Version number of the cretonne crate.
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub use translation_utils::{Local, FunctionIndex, GlobalIndex, TableIndex, RawByte, Address};

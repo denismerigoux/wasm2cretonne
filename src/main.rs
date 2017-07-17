@@ -1,4 +1,5 @@
 extern crate wasm2cretonne;
+extern crate wasmruntime;
 extern crate wasmparser;
 extern crate cretonne;
 extern crate wasmtext;
@@ -8,7 +9,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::{translate_module, StandaloneRuntime, FunctionImports};
+use wasm2cretonne::{translate_module, FunctionImports};
+use wasmruntime::{StandaloneRuntime, translate_and_execute_module};
 use cretonne::ir::Function;
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -112,6 +114,7 @@ fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), S
             return Err(string);
         }
     };
+    translate_and_execute_module(&data).unwrap();
     if interactive {
         println!();
         let mut writer1 = stdout();

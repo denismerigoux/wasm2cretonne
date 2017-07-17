@@ -1,5 +1,5 @@
-use runtime::runtime::{Global, GlobalInit, Table, Memory, WasmRuntime};
-use translation_utils::{Local, FunctionIndex, GlobalIndex, TableIndex, RawByte, Address};
+use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, RawByte, Address, Global,
+                    GlobalInit, Table, Memory, WasmRuntime};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, FunctionName,
                    Signature, ArgumentType};

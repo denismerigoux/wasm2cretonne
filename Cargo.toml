@@ -9,6 +9,7 @@ name = "wasm2cretonne-util"
 
 [dependencies]
 wasm2cretonne = { path = "lib/wasm2cretonne" }
+wasmruntime = { path = "lib/wasmruntime" } 
 wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/stoklund/cretonne.git" }
 cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
