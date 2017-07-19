@@ -9,13 +9,26 @@ use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 use runtime::WasmRuntime;
 
+pub struct TranslationResult {
+    pub functions: Vec<FunctionTranslation>,
+    pub start_index: Option<FunctionIndex>,
+}
+#[derive(Clone)]
+pub enum FunctionTranslation {
+    Code {
+        il: Function,
+        imports: FunctionImports,
+    },
+    Import(),
+}
+
 /// Translate a sequence of bytes forming a valid Wasm binary into a list of valid Cretonne IL
 /// [`Function`](../cretonne/ir/function/struct.Function.html).
 /// Returns the functions and also the mappings for imported functions and signature between the
 /// indexes in the wasm module and the indexes inside each functions.
 pub fn translate_module(data: &Vec<u8>,
                         runtime: &mut WasmRuntime)
-                        -> Result<Vec<(Function, FunctionImports)>, String> {
+                        -> Result<TranslationResult, String> {
     let mut parser = Parser::new(data.as_slice());
     match *parser.read() {
         ParserState::BeginWasm { .. } => {}
@@ -27,6 +40,8 @@ pub fn translate_module(data: &Vec<u8>,
     let mut exports: Option<HashMap<FunctionIndex, String>> = None;
     let mut next_input = ParserInput::Default;
     let mut function_index: FunctionIndex = 0;
+    let mut function_imports_count = 0;
+    let mut start_index: Option<FunctionIndex> = None;
     loop {
         match *parser.read_with_input(next_input) {
             ParserState::BeginSection { code: SectionCode::Type, .. } => {
@@ -70,6 +85,7 @@ pub fn translate_module(data: &Vec<u8>,
                         return Err(String::from("wrong content in the import section"))
                     }
                 }
+                function_imports_count = function_index;
                 next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Function, .. } => {
@@ -126,7 +142,17 @@ pub fn translate_module(data: &Vec<u8>,
                 next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Start, .. } => {
-                next_input = ParserInput::SkipSection;
+                match *parser.read() {
+                    ParserState::StartSectionEntry(index) => {
+                        start_index = Some(index as FunctionIndex)
+                    }
+                    _ => return Err(String::from("wrong content in the start section")),
+                }
+                match *parser.read() {
+                    ParserState::EndSection => {}
+                    _ => return Err(String::from("wrong content in the start section")),
+                }
+                next_input = ParserInput::Default;
             }
             ParserState::BeginSection { code: SectionCode::Element, .. } => {
                 match parse_elements_section(&mut parser, runtime, &globals) {
@@ -148,7 +174,12 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::EndSection => {
                 next_input = ParserInput::Default;
             }
-            ParserState::EndWasm => return Ok(Vec::new()),
+            ParserState::EndWasm => {
+                return Ok(TranslationResult {
+                              functions: Vec::new(),
+                              start_index: None,
+                          })
+            }
             _ => return Err(String::from("wrong content in the preamble")),
         };
     }
@@ -162,7 +193,8 @@ pub fn translate_module(data: &Vec<u8>,
         None => return Err(String::from("missing a function section")),
         Some(functions) => functions,
     };
-    let mut il_functions: Vec<(Function, FunctionImports)> = Vec::new();
+    let mut il_functions: Vec<FunctionTranslation> = Vec::new();
+    il_functions.resize(function_imports_count, FunctionTranslation::Import());
     let mut il_builder = ILBuilder::new();
     runtime.begin_translation();
     loop {
@@ -192,10 +224,18 @@ pub fn translate_module(data: &Vec<u8>,
                                       &functions,
                                       &mut il_builder,
                                       runtime) {
-            Ok((il_func, imports)) => il_functions.push((il_func, imports)),
+            Ok((il_func, imports)) => {
+                il_functions.push(FunctionTranslation::Code {
+                                      il: il_func,
+                                      imports,
+                                  })
+            }
             Err(s) => return Err(s),
         }
         function_index += 1;
     }
-    Ok(il_functions)
+    Ok(TranslationResult {
+           functions: il_functions,
+           start_index,
+       })
 }

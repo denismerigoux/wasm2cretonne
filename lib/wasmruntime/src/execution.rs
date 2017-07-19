@@ -3,14 +3,14 @@ use cretonne::settings;
 use cretonne::isa;
 use cretonne::ir::{Ebb, FuncRef, JumpTable};
 use cretonne::binemit::{RelocSink, Reloc, CodeOffset};
-use wasm2cretonne::translate_module;
-use standalone::StandaloneRuntime;
+use wasm2cretonne::TranslationResult;
+use wasm2cretonne::{Code, Import};
 use std::mem::transmute;
 use region::Protection;
 use region::protect;
 
 macro_rules! transmute_sig {
-    ($addr: expr; [$($arg:ty),*] ;$ret:ty) => {
+    ($addr: expr, [$($arg:ty),*], $ret:ty) => {
         transmute::< _,fn($($arg,)*) -> $ret>($addr)
     };
     ($addr: expr; [$($arg:ty),*]) => {
@@ -32,14 +32,8 @@ impl RelocSink for DummyRelocSink {
     }
 }
 
-pub fn translate_and_execute_module(data: &Vec<u8>) -> Result<(), String> {
-    let mut runtime = StandaloneRuntime::new();
-    let functions_and_import = match translate_module(data, &mut runtime) {
-        Ok(funcs) => funcs,
-        Err(string) => {
-            return Err(string);
-        }
-    };
+/// Executes a module that has been translated with the `StandaloneRuntime` runtime implementation.
+pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
     let shared_builder = settings::builder();
     let shared_flags = settings::Flags::new(&shared_builder);
     let isa = match isa::lookup("intel") {
@@ -48,15 +42,21 @@ pub fn translate_and_execute_module(data: &Vec<u8>) -> Result<(), String> {
         }
         Some(isa_builder) => isa_builder.finish(shared_flags),
     };
-    for (func, _) in functions_and_import {
-        let mut context = Context::new();
-        context.func = func;
-        let code_size = context.compile(&*isa).unwrap() as usize;
-        let mut code_buf: Vec<u8> = Vec::with_capacity(code_size);
-        code_buf.resize(code_size, 0);
-        let mut relocsink = DummyRelocSink {};
-        context.emit_to_memory(code_buf.as_mut_ptr(), &mut relocsink, &*isa);
-        execute(&mut code_buf);
+    match trans_result.start_index {
+        None => println!("No start function defined, aborting execution"),
+        Some(index) => {
+            let mut context = Context::new();
+            context.func = match trans_result.functions[index] {
+                Import() => panic!("start function should not be an import"),
+                Code { ref il, .. } => il.clone(),
+            };
+            let code_size = context.compile(&*isa).unwrap() as usize;
+            let mut code_buf: Vec<u8> = Vec::with_capacity(code_size);
+            code_buf.resize(code_size, 0);
+            let mut relocsink = DummyRelocSink {};
+            context.emit_to_memory(code_buf.as_mut_ptr(), &mut relocsink, &*isa);
+            execute(&mut code_buf);
+        }
     }
     Ok(())
 }
@@ -67,9 +67,7 @@ fn execute(code_buf: &mut Vec<u8>) {
                 code_buf.len(),
                 Protection::ReadWriteExecute)
                 .unwrap();
-        let func = transmute_sig!(code_buf.as_ptr(); [i32, i32] ; i32);
-        let arg1 = 5;
-        let arg2 = 7;
-        println!("Result of add({},{}): {}", arg1, arg2, func(arg1, arg2));
+        let start_func = transmute::<_, fn()>(code_buf.as_ptr());
+        start_func()
     }
 }

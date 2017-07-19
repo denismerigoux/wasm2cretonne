@@ -1,5 +1,6 @@
 (module
-  (func (export "i32.add") (param $x i32) (param $y i32) (result i32)
-    (i32.add (get_local $y) (get_local $x))
+  (func $main
+      (drop (i32.add (i32.const 3) (i32.const 4)))
   )
+  (start $main)
 )
