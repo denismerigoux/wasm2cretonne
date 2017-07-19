@@ -34,6 +34,7 @@ Usage:
 
 Options:
     -i, --interactive   displays the translated functions
+    -e, --execute       executes the start function of the module
     -h, --help          print this help message
     --version           print the Cretonne version
 ";
@@ -43,6 +44,7 @@ struct Args {
     cmd_all: bool,
     arg_file: Vec<String>,
     flag_interactive: bool,
+    flag_execute: bool,
 }
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
