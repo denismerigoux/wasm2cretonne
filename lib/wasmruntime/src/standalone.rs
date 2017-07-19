@@ -297,3 +297,26 @@ impl WasmRuntime for StandaloneRuntime {
                   });
     }
 }
+
+impl StandaloneRuntime {
+    pub fn inspect_memory(&self, memory_index: usize, address: usize, len: usize) -> &[u8] {
+        self.memories[memory_index]
+            .data
+            .as_slice()
+            .split_at(address)
+            .1
+            .split_at(len)
+            .0
+    }
+    pub fn inspect_global(&self, global_index: usize) -> &[u8] {
+        let (offset, len) = (self.globals.info[global_index].offset,
+                             self.globals.info[global_index].global.ty.bytes() as usize);
+        self.globals
+            .data
+            .as_slice()
+            .split_at(offset)
+            .1
+            .split_at(len)
+            .0
+    }
+}
