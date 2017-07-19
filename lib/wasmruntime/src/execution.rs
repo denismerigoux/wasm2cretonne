@@ -9,15 +9,6 @@ use std::mem::transmute;
 use region::Protection;
 use region::protect;
 
-macro_rules! transmute_sig {
-    ($addr: expr, [$($arg:ty),*], $ret:ty) => {
-        transmute::< _,fn($($arg,)*) -> $ret>($addr)
-    };
-    ($addr: expr; [$($arg:ty),*]) => {
-        transmute::< _,fn($($arg,)*)>($addr)
-    }
-}
-
 struct DummyRelocSink {}
 
 impl RelocSink for DummyRelocSink {

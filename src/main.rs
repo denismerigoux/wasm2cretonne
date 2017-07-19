@@ -138,7 +138,7 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
     }
     if args.flag_execute {
         terminal.fg(term::color::YELLOW).unwrap();
-        println!("Executing module...");
+        println!("Compiling and executing module...");
         terminal.reset().unwrap();
         match execute_module(&translation) {
             Ok(()) => {
