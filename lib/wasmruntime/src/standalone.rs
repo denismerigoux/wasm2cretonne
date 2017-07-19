@@ -1,5 +1,5 @@
-use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, RawByte, Address, Global,
-                    GlobalInit, Table, Memory, WasmRuntime};
+use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, MemoryIndex, RawByte, Address,
+                    Global, GlobalInit, Table, Memory, WasmRuntime};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, FunctionName,
                    Signature, ArgumentType};
@@ -89,6 +89,13 @@ impl WasmRuntime for StandaloneRuntime {
         let addr: i64 = unsafe { transmute(self.globals.data.as_ptr()) };
         let addr_val = builder.ins().iconst(I64, addr);
         builder.ins().store(memflags, val, addr_val, memoffset);
+    }
+    fn translate_memory_base_adress(&self,
+                                    builder: &mut FunctionBuilder<Local>,
+                                    memory_index: MemoryIndex)
+                                    -> Value {
+        let addr: i64 = unsafe { transmute(self.memories[memory_index].data.as_ptr()) };
+        builder.ins().iconst(I64, addr)
     }
     fn translate_grow_memory(&mut self,
                              builder: &mut FunctionBuilder<Local>,

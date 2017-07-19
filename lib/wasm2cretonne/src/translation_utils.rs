@@ -7,6 +7,7 @@ use runtime::{Global, Memory, Table};
 pub type FunctionIndex = usize;
 pub type TableIndex = usize;
 pub type GlobalIndex = usize;
+pub type MemoryIndex = usize;
 pub type RawByte = u8;
 pub type Address = u32;
 pub type SignatureIndex = usize;

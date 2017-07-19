@@ -2,7 +2,7 @@
 //! trait `WasmRuntime`.
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, Type, SigRef};
-use translation_utils::{Local, FunctionIndex, TableIndex, GlobalIndex};
+use translation_utils::{Local, FunctionIndex, TableIndex, GlobalIndex, MemoryIndex};
 
 
 /// Struct that models Wasm globals
@@ -65,6 +65,10 @@ pub trait WasmRuntime {
                             val: Value);
     fn translate_grow_memory(&mut self, builder: &mut FunctionBuilder<Local>, val: Value) -> Value;
     fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value;
+    fn translate_memory_base_adress(&self,
+                                    builder: &mut FunctionBuilder<Local>,
+                                    index: MemoryIndex)
+                                    -> Value;
     fn translate_call_indirect<'a>(&self,
                                    builder: &'a mut FunctionBuilder<Local>,
                                    sig_ref: SigRef,

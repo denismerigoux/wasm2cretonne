@@ -1,5 +1,5 @@
 use runtime::{Global, Table, WasmRuntime, Memory};
-use translation_utils::{Local, GlobalIndex, TableIndex, FunctionIndex};
+use translation_utils::{Local, GlobalIndex, TableIndex, FunctionIndex, MemoryIndex};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, InstBuilder, SigRef};
 use cretonne::ir::immediates::{Ieee32, Ieee64};
@@ -50,7 +50,12 @@ impl WasmRuntime for DummyRuntime {
         let call_inst = builder.ins().call_indirect(sig_ref, index_val, call_args);
         builder.inst_results(call_inst)
     }
-
+    fn translate_memory_base_adress(&self,
+                                    builder: &mut FunctionBuilder<Local>,
+                                    _: MemoryIndex)
+                                    -> Value {
+        builder.ins().iconst(I64, 0)
+    }
     fn declare_global(&mut self, _: Global) {
         //We do nothing
     }
