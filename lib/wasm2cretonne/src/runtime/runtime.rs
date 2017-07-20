@@ -40,7 +40,7 @@ pub enum TableElementType {
 /// Struct that models the Wasm linear memory
 #[derive(Debug,Clone,Copy)]
 pub struct Memory {
-    pub size: usize,
+    pub pages_count: usize,
     pub maximum: Option<usize>,
 }
 

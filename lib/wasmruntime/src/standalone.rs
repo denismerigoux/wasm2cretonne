@@ -250,17 +250,6 @@ impl WasmRuntime for StandaloneRuntime {
                 }
             }
         }
-        // Instantiating the tables
-        for table in self.tables.iter_mut() {
-            // TODO: link with the actual adresses of the functions
-            table.addresses.resize(table.info.size as usize, 0);
-        }
-        // Instantiating the memory
-        for memory in self.memories.iter_mut() {
-            memory
-                .data
-                .resize((memory.info.size as usize) * PAGE_SIZE, 0);
-        }
     }
     fn next_function(&mut self) {
         self.has_current_memory = None;
@@ -279,10 +268,12 @@ impl WasmRuntime for StandaloneRuntime {
         debug_assert!(!self.instantiated);
         let mut elements_vec = Vec::with_capacity(table.size as usize);
         elements_vec.resize(table.size as usize, TableElement::Trap());
+        let mut addresses_vec = Vec::with_capacity(table.size as usize);
+        addresses_vec.resize(table.size as usize, 0);
         self.tables
             .push(TablesData {
                       info: table,
-                      addresses: Vec::with_capacity(table.size as usize),
+                      addresses: addresses_vec,
                       elements: elements_vec,
                   });
     }
@@ -297,10 +288,12 @@ impl WasmRuntime for StandaloneRuntime {
     }
     fn declare_memory(&mut self, memory: Memory) {
         debug_assert!(!self.instantiated);
+        let mut memory_vec = Vec::with_capacity(memory.pages_count as usize * PAGE_SIZE);
+        memory_vec.resize(memory.pages_count as usize * PAGE_SIZE, 0);
         self.memories
             .push(MemoryData {
                       info: memory,
-                      data: Vec::with_capacity(memory.size as usize),
+                      data: memory_vec,
                   });
     }
     fn declare_data_initialization(&mut self,
@@ -308,7 +301,7 @@ impl WasmRuntime for StandaloneRuntime {
                                    offset: usize,
                                    data: &[u8])
                                    -> Result<(), String> {
-        if offset + data.len() >= self.memories[memory_index].info.size {
+        if offset + data.len() > self.memories[memory_index].info.pages_count * PAGE_SIZE {
             return Err(String::from("initialization data out of bounds"));
         }
         self.memories[memory_index].data[offset..offset + data.len()].copy_from_slice(data);

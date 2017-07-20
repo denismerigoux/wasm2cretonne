@@ -68,7 +68,7 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                 ty: ImportSectionEntryType::Memory(MemoryType { limits: ref memlimits }), ..
             } => {
                 imports.push(Import::Memory(Memory {
-                                                size: memlimits.initial as usize,
+                                                pages_count: memlimits.initial as usize,
                                                 maximum: memlimits.maximum.map(|x| x as usize),
                                             }))
             }
@@ -148,7 +148,7 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
         match *parser.read() {
             ParserState::MemorySectionEntry(ref ty) => {
                 memories.push(Memory {
-                                  size: ty.limits.initial as usize,
+                                  pages_count: ty.limits.initial as usize,
                                   maximum: ty.limits.maximum.map(|x| x as usize),
                               })
             }
@@ -219,7 +219,7 @@ pub fn parse_data_section(parser: &mut Parser,
     loop {
         let memory_index = match *parser.read() {
             ParserState::BeginDataSectionEntry(memory_index) => memory_index,
-            ParserState::EndDataSectionEntry => break,
+            ParserState::EndSection => break,
             ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
@@ -255,13 +255,21 @@ pub fn parse_data_section(parser: &mut Parser,
             ParserState::EndInitExpressionBody => (),
             ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
-        let data = match *parser.read() {
-            ParserState::DataSectionEntryBody(data) => data,
+        {
+            let data = match *parser.read() {
+                ParserState::DataSectionEntryBody(data) => data,
+                ref s @ _ => {
+                    return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s)))
+                }
+            };
+            match runtime.declare_data_initialization(memory_index as MemoryIndex, offset, data) {
+                Ok(()) => (),
+                Err(s) => return Err(SectionParsingError::WrongSectionContent(format!("{}", s))),
+            };
+        }
+        match *parser.read() {
+            ParserState::EndDataSectionEntry => (),
             ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
-        };
-        match runtime.declare_data_initialization(memory_index as MemoryIndex, offset, data) {
-            Ok(()) => (),
-            Err(s) => return Err(SectionParsingError::WrongSectionContent(format!("{}", s))),
         };
     }
     Ok(())

@@ -148,7 +148,7 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
             }
             Err(s) => {
                 terminal.fg(term::color::RED).unwrap();
-                println!(" error");
+                println!("error");
                 terminal.reset().unwrap();
                 return Err(s);
             }
