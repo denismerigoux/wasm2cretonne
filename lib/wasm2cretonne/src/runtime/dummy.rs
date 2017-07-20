@@ -56,8 +56,8 @@ impl WasmRuntime for DummyRuntime {
                                     -> Value {
         builder.ins().iconst(I64, 0)
     }
-    fn declare_global(&mut self, _: Global) {
-        //We do nothing
+    fn declare_global(&mut self, global: Global) {
+        self.globals.push(global);
     }
     fn declare_table(&mut self, _: Table) {
         //We do nothing

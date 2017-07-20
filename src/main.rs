@@ -9,7 +9,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation};
+use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime};
 use wasmruntime::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -24,7 +24,10 @@ use std::fs;
 use std::path::Path;
 
 const USAGE: &str = "
-Wasm to Cretonne IL translation utility
+Wasm to Cretonne IL translation utility.
+Takes a binary WebAssembly module and returns its functions in Cretonne IL format.
+The translation is dependent on the runtime chosen.
+The default is a dummy runtime that produces placeholder values.
 
 Usage:
     cton-util [-ve] file <file>...
@@ -33,7 +36,7 @@ Usage:
 
 Options:
     -v, --verbose       displays the module and translated functions
-    -e, --execute       executes the start function of the module
+    -e, --execute       enable the standalone runtime and executes the start function of the module
     -h, --help          print this help message
     --version           print the Cretonne version
 ";
@@ -108,14 +111,25 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
             return Err(String::from(err.description()));
         }
     };
-    let mut runtime = StandaloneRuntime::new();
-    let translation = match translate_module(&data, &mut runtime) {
-        Ok(x) => x,
-        Err(string) => {
-            terminal.fg(term::color::RED).unwrap();
-            println!(" error");
-            terminal.reset().unwrap();
-            return Err(string);
+    let translation = if args.flag_execute {
+        match translate_module(&data, &mut StandaloneRuntime::new()) {
+            Ok(x) => x,
+            Err(string) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!(" error");
+                terminal.reset().unwrap();
+                return Err(string);
+            }
+        }
+    } else {
+        match translate_module(&data, &mut DummyRuntime::new()) {
+            Ok(x) => x,
+            Err(string) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!(" error");
+                terminal.reset().unwrap();
+                return Err(string);
+            }
         }
     };
     if args.flag_verbose {
