@@ -1,7 +1,8 @@
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
-                          parse_global_section, parse_table_section, parse_elements_section};
+                          parse_global_section, parse_table_section, parse_elements_section,
+                          parse_data_section};
 use translation_utils::{type_to_type, Import, SignatureIndex, FunctionIndex};
 use cretonne::ir::{Function, Type};
 use code_translator::{translate_function_body, FunctionImports};
@@ -47,8 +48,8 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::BeginSection { code: SectionCode::Type, .. } => {
                 match parse_function_signatures(&mut parser) {
                     Ok(sigs) => signatures = Some(sigs),
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the type section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the type section: {}", s))
                     }
                 };
                 next_input = ParserInput::Default;
@@ -81,8 +82,8 @@ pub fn translate_module(data: &Vec<u8>,
                             }
                         }
                     }
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the import section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the import section: {}", s))
                     }
                 }
                 function_imports_count = function_index;
@@ -96,8 +97,8 @@ pub fn translate_module(data: &Vec<u8>,
                             Some(ref mut imps) => imps.extend(funcs),
                         }
                     }
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the function section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the function section: {}", s))
                     }
                 }
                 next_input = ParserInput::Default;
@@ -105,8 +106,8 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::BeginSection { code: SectionCode::Table, .. } => {
                 match parse_table_section(&mut parser, runtime) {
                     Ok(()) => (),
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the table section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the table section: {}", s))
                     }
                 }
             }
@@ -117,8 +118,8 @@ pub fn translate_module(data: &Vec<u8>,
                             runtime.declare_memory(mem);
                         }
                     }
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the memory section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the memory section: {}", s))
                     }
                 }
                 next_input = ParserInput::Default;
@@ -126,8 +127,8 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::BeginSection { code: SectionCode::Global, .. } => {
                 match parse_global_section(&mut parser, runtime) {
                     Ok(mut globs) => globals.append(&mut globs),
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the global section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the global section: {}", s))
                     }
                 }
                 next_input = ParserInput::Default;
@@ -135,8 +136,8 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::BeginSection { code: SectionCode::Export, .. } => {
                 match parse_export_section(&mut parser) {
                     Ok(exps) => exports = Some(exps),
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the export section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the export section: {}", s))
                     }
                 }
                 next_input = ParserInput::Default;
@@ -157,15 +158,11 @@ pub fn translate_module(data: &Vec<u8>,
             ParserState::BeginSection { code: SectionCode::Element, .. } => {
                 match parse_elements_section(&mut parser, runtime, &globals) {
                     Ok(()) => (),
-                    Err(SectionParsingError::WrongSectionContent()) => {
-                        return Err(String::from("wrong content in the element section"))
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the element section: {}", s))
                     }
                 }
                 next_input = ParserInput::Default;
-            }
-            ParserState::BeginSection { code: SectionCode::Data, .. } => {
-                // TODO: handle it with runtime
-                next_input = ParserInput::SkipSection;
             }
             ParserState::BeginSection { code: SectionCode::Code, .. } => {
                 // The code section begins
@@ -179,6 +176,14 @@ pub fn translate_module(data: &Vec<u8>,
                               functions: Vec::new(),
                               start_index: None,
                           })
+            }
+            ParserState::BeginSection { code: SectionCode::Data, .. } => {
+                match parse_data_section(&mut parser, runtime, &globals) {
+                    Ok(()) => (),
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the data section: {}", s))
+                    }
+                }
             }
             _ => return Err(String::from("wrong content in the preamble")),
         };
@@ -234,8 +239,24 @@ pub fn translate_module(data: &Vec<u8>,
         }
         function_index += 1;
     }
-    Ok(TranslationResult {
-           functions: il_functions,
-           start_index,
-       })
+    loop {
+        match *parser.read() {
+            ParserState::BeginSection { code: SectionCode::Data, .. } => {
+                match parse_data_section(&mut parser, runtime, &globals) {
+                    Ok(()) => (),
+                    Err(SectionParsingError::WrongSectionContent(s)) => {
+                        return Err(format!("wrong content in the data section: {}", s))
+                    }
+                }
+            }
+            ParserState::EndWasm => {
+                return Ok(TranslationResult {
+                              functions: il_functions,
+                              start_index,
+                          })
+            }
+            _ => (),
+        }
+    }
+
 }

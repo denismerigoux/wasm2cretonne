@@ -303,6 +303,17 @@ impl WasmRuntime for StandaloneRuntime {
                       data: Vec::with_capacity(memory.size as usize),
                   });
     }
+    fn declare_data_initialization(&mut self,
+                                   memory_index: MemoryIndex,
+                                   offset: usize,
+                                   data: &[u8])
+                                   -> Result<(), String> {
+        if offset + data.len() >= self.memories[memory_index].info.size {
+            return Err(String::from("initialization data out of bounds"));
+        }
+        self.memories[memory_index].data[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
+    }
 }
 
 impl StandaloneRuntime {
@@ -318,12 +329,6 @@ impl StandaloneRuntime {
     pub fn inspect_global(&self, global_index: usize) -> &[u8] {
         let (offset, len) = (self.globals.info[global_index].offset,
                              self.globals.info[global_index].global.ty.bytes() as usize);
-        self.globals
-            .data
-            .as_slice()
-            .split_at(offset)
-            .1
-            .split_at(len)
-            .0
+        &self.globals.data[offset..offset + len]
     }
 }

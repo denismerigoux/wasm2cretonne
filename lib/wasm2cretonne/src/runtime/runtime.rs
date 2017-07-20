@@ -52,7 +52,11 @@ pub trait WasmRuntime {
                               offset: usize,
                               elements: &[FunctionIndex]);
     fn declare_memory(&mut self, memory: Memory);
-
+    fn declare_data_initialization(&mut self,
+                                   memory_index: MemoryIndex,
+                                   offset: usize,
+                                   data: &[u8])
+                                   -> Result<(), String>;
     fn begin_translation(&mut self);
     fn next_function(&mut self);
     fn translate_get_global(&self,

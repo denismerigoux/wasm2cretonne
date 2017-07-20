@@ -9,7 +9,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::{translate_module, TranslationResult, Import, Code};
+use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation};
 use wasmruntime::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -170,8 +170,8 @@ fn pretty_print_translation(filename: &String,
         .functions
         .iter()
         .fold(0, |acc, &ref f| match f {
-            &Import() => acc + 1,
-            &Code { .. } => acc,
+            &FunctionTranslation::Import() => acc + 1,
+            &FunctionTranslation::Code { .. } => acc,
         });
     match parser.read() {
         s @ &ParserState::BeginWasm { .. } => parser_writer.write(&s)?,
@@ -221,13 +221,13 @@ fn pretty_print_translation(filename: &String,
                 };
             }
         }
-        let mut function_string = format!("  {}",
-                                          match translation.functions[function_index +
-                                                    imports_count] {
-                                                  Code { ref il, .. } => il,
-                                                  Import() => panic!("should not happen"),
-                                              }
-                                              .display(None));
+        let mut function_string =
+            format!("  {}",
+                    match translation.functions[function_index + imports_count] {
+                            FunctionTranslation::Code { ref il, .. } => il,
+                            FunctionTranslation::Import() => panic!("should not happen"),
+                        }
+                        .display(None));
         function_string.pop();
         let function_str = str::replace(function_string.as_str(), "\n", "\n  ");
         terminal.fg(term::color::CYAN).unwrap();

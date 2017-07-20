@@ -3,8 +3,7 @@ use cretonne::settings;
 use cretonne::isa;
 use cretonne::ir::{Ebb, FuncRef, JumpTable};
 use cretonne::binemit::{RelocSink, Reloc, CodeOffset};
-use wasm2cretonne::TranslationResult;
-use wasm2cretonne::{Code, Import};
+use wasm2cretonne::{TranslationResult, FunctionTranslation};
 use std::mem::transmute;
 use region::Protection;
 use region::protect;
@@ -38,8 +37,8 @@ pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
         Some(index) => {
             let mut context = Context::new();
             context.func = match trans_result.functions[index] {
-                Import() => panic!("start function should not be an import"),
-                Code { ref il, .. } => il.clone(),
+                FunctionTranslation::Import() => panic!("start function should not be an import"),
+                FunctionTranslation::Code { ref il, .. } => il.clone(),
             };
             let code_size = context.compile(&*isa).unwrap() as usize;
             let mut code_buf: Vec<u8> = Vec::with_capacity(code_size);

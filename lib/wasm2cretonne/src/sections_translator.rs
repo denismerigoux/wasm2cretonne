@@ -1,4 +1,5 @@
-use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, SignatureIndex};
+use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, SignatureIndex,
+                        MemoryIndex};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
@@ -9,7 +10,7 @@ use std::str::from_utf8;
 use runtime::{WasmRuntime, Global, GlobalInit, Table, TableElementType, Memory};
 
 pub enum SectionParsingError {
-    WrongSectionContent(),
+    WrongSectionContent(String),
 }
 
 /// Reads the Type Section of the wasm module and returns the corresponding function signatures.
@@ -49,7 +50,7 @@ pub fn parse_function_signatures(parser: &mut Parser)
                     }));
                 signatures.push(sig);
             }
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         }
     }
     Ok(signatures)
@@ -93,7 +94,7 @@ pub fn parse_import_section(parser: &mut Parser) -> Result<Vec<Import>, SectionP
                                            }));
             }
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(imports)
@@ -107,7 +108,7 @@ pub fn parse_function_section(parser: &mut Parser)
         match *parser.read() {
             ParserState::FunctionSectionEntry(sigindex) => funcs.push(sigindex as SignatureIndex),
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(funcs)
@@ -134,10 +135,7 @@ pub fn parse_export_section(parser: &mut Parser)
                 }
             }
             ParserState::EndSection => break,
-            ref s @ _ => {
-                println!("{:?}", s);
-                return Err(SectionParsingError::WrongSectionContent());
-            }
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(exports)
@@ -155,7 +153,7 @@ pub fn parse_memory_section(parser: &mut Parser) -> Result<Vec<Memory>, SectionP
                               })
             }
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(memories)
@@ -170,11 +168,11 @@ pub fn parse_global_section(parser: &mut Parser,
         let (content_type, mutability) = match *parser.read() {
             ParserState::BeginGlobalSectionEntry(ref ty) => (ty.content_type, ty.mutability),
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
             ParserState::BeginInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         }
         let initializer = match *parser.read() {
             ParserState::InitExpressionOperator(Operator::I32Const { value }) => {
@@ -192,12 +190,12 @@ pub fn parse_global_section(parser: &mut Parser,
             ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
                 GlobalInit::ImportRef(global_index as usize)
             }
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
 
         };
         match *parser.read() {
             ParserState::EndInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         }
         let global = Global {
             ty: type_to_type(&content_type).unwrap(),
@@ -208,10 +206,65 @@ pub fn parse_global_section(parser: &mut Parser,
         globals.push(global);
         match *parser.read() {
             ParserState::EndGlobalSectionEntry => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         }
     }
     Ok(globals)
+}
+
+pub fn parse_data_section(parser: &mut Parser,
+                          runtime: &mut WasmRuntime,
+                          globals: &Vec<Global>)
+                          -> Result<(), SectionParsingError> {
+    loop {
+        let memory_index = match *parser.read() {
+            ParserState::BeginDataSectionEntry(memory_index) => memory_index,
+            ParserState::EndDataSectionEntry => break,
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
+        };
+        match *parser.read() {
+            ParserState::BeginInitExpressionBody => (),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
+        };
+        let offset = match *parser.read() {
+            ParserState::InitExpressionOperator(Operator::I32Const { value }) => {
+                if value < 0 {
+                    return Err(SectionParsingError::WrongSectionContent(String::from("negative offset value",),),);
+                } else {
+                    value as usize
+                }
+            }
+            ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
+                match globals[global_index as usize].initializer {
+                    GlobalInit::I32Const(value) => {
+                        if value < 0 {
+                            return Err(SectionParsingError::WrongSectionContent(String::from("negative offset value",),),);
+                        } else {
+                            value as usize
+                        }
+                    }
+                    GlobalInit::Import() => {
+                        return Err(SectionParsingError::WrongSectionContent(String::from("imported globals not supported",),),)
+                    } // TODO: add runtime support
+                    _ => panic!("should not happen"),
+                }
+            }
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
+        };
+        match *parser.read() {
+            ParserState::EndInitExpressionBody => (),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
+        };
+        let data = match *parser.read() {
+            ParserState::DataSectionEntryBody(data) => data,
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
+        };
+        match runtime.declare_data_initialization(memory_index as MemoryIndex, offset, data) {
+            Ok(()) => (),
+            Err(s) => return Err(SectionParsingError::WrongSectionContent(format!("{}", s))),
+        };
+    }
+    Ok(())
 }
 
 /// Retrieves the tables from the table section
@@ -231,7 +284,7 @@ pub fn parse_table_section(parser: &mut Parser,
                                       })
             }
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(())
@@ -246,26 +299,38 @@ pub fn parse_elements_section(parser: &mut Parser,
         let table_index = match *parser.read() {
             ParserState::BeginElementSectionEntry(ref table_index) => *table_index as TableIndex,
             ParserState::EndSection => break,
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
             ParserState::BeginInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         let offset = match *parser.read() {
-            ParserState::InitExpressionOperator(Operator::I32Const { value }) => value as usize,
+            ParserState::InitExpressionOperator(Operator::I32Const { value }) => {
+                if value < 0 {
+                    return Err(SectionParsingError::WrongSectionContent(String::from("negative offset value",),),);
+                } else {
+                    value as usize
+                }
+            }
             ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
                 match globals[global_index as usize].initializer {
-                    GlobalInit::I32Const(val) => val as usize,
+                    GlobalInit::I32Const(value) => {
+                        if value < 0 {
+                            return Err(SectionParsingError::WrongSectionContent(String::from("negative offset value",),),);
+                        } else {
+                            value as usize
+                        }
+                    }
                     GlobalInit::Import() => 0, // TODO: add runtime support
                     _ => panic!("should not happen"),
                 }
             }
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
             ParserState::EndInitExpressionBody => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
             ParserState::ElementSectionEntryBody(ref elements) => {
@@ -273,11 +338,11 @@ pub fn parse_elements_section(parser: &mut Parser,
                     elements.iter().map(|&x| x as FunctionIndex).collect();
                 runtime.declare_table_elements(table_index, offset, elems.as_slice())
             }
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
         match *parser.read() {
             ParserState::EndElementSectionEntry => (),
-            _ => return Err(SectionParsingError::WrongSectionContent()),
+            ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
         };
     }
     Ok(())

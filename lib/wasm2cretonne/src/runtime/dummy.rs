@@ -68,6 +68,14 @@ impl WasmRuntime for DummyRuntime {
     fn declare_memory(&mut self, _: Memory) {
         //We do nothing
     }
+    fn declare_data_initialization(&mut self,
+                                   _: MemoryIndex,
+                                   _: usize,
+                                   _: &[u8])
+                                   -> Result<(), String> {
+        // We do nothing
+        Ok(())
+    }
 
     fn begin_translation(&mut self) {
         // We do nothing
