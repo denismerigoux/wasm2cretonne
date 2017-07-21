@@ -45,34 +45,48 @@ pub struct Memory {
 }
 
 pub trait WasmRuntime {
+    /// Declares a global to the runtime.
     fn declare_global(&mut self, global: Global);
+    /// Declares a table to the runtime.
     fn declare_table(&mut self, table: Table);
+    /// Fills a declared table with references to functions in the module.
     fn declare_table_elements(&mut self,
                               table_index: TableIndex,
                               offset: usize,
                               elements: &[FunctionIndex]);
+    /// Declares a memory to the runtime
     fn declare_memory(&mut self, memory: Memory);
+    /// Fills a declared memory with bytes at module instantiation.
     fn declare_data_initialization(&mut self,
                                    memory_index: MemoryIndex,
                                    offset: usize,
                                    data: &[u8])
                                    -> Result<(), String>;
+    /// Call this function after having declared all the runtime elements but prior to the
+    /// function body translation.
     fn begin_translation(&mut self);
+    /// Call this function between each function body translation.
     fn next_function(&mut self);
+    /// Translates a `get_global` wasm instruction.
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex)
                             -> Value;
+    /// Translates a `set_global` wasm instruction.
     fn translate_set_global(&self,
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex,
                             val: Value);
+    /// Translates a `grow_memory` wasm instruction.
     fn translate_grow_memory(&mut self, builder: &mut FunctionBuilder<Local>, val: Value) -> Value;
+    /// Translates a `current_memory` wasm instruction.
     fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value;
+    /// Returns the ase address of a wasm memory as a Cretonne `Value`.
     fn translate_memory_base_adress(&self,
                                     builder: &mut FunctionBuilder<Local>,
                                     index: MemoryIndex)
                                     -> Value;
+    /// Translates a `call_indirect` wasm instruction.
     fn translate_call_indirect<'a>(&self,
                                    builder: &'a mut FunctionBuilder<Local>,
                                    sig_ref: SigRef,
