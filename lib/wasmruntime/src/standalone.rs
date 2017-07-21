@@ -311,7 +311,9 @@ impl WasmRuntime for StandaloneRuntime {
 
 impl StandaloneRuntime {
     pub fn inspect_memory(&self, memory_index: usize, address: usize, len: usize) -> &[u8] {
-        self.memories[memory_index]
+        self.memories
+            .get(memory_index)
+            .expect(format!("no memory for index {}", memory_index).as_str())
             .data
             .as_slice()
             .split_at(address)

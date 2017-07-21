@@ -9,7 +9,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime};
+use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime,
+                    WasmRuntime};
 use wasmruntime::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
@@ -30,13 +31,16 @@ The translation is dependent on the runtime chosen.
 The default is a dummy runtime that produces placeholder values.
 
 Usage:
-    cton-util [-ve] file <file>...
-    cton-util [-ve] all
+    cton-util [-v] file <file>...
+    cton-util -e [-mv] file <file>...
+    cton-util [-v] all
+    cton-util -e [-mv] all
     cton-util --help | --version
 
 Options:
     -v, --verbose       displays the module and translated functions
     -e, --execute       enable the standalone runtime and executes the start function of the module
+    -m, --memory        interactive memory inspector after execution
     -h, --help          print this help message
     --version           print the Cretonne version
 ";
@@ -47,6 +51,7 @@ struct Args {
     arg_file: Vec<String>,
     flag_verbose: bool,
     flag_execute: bool,
+    flag_memory: bool,
 }
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
@@ -111,18 +116,15 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
             return Err(String::from(err.description()));
         }
     };
-    let translation = if args.flag_execute {
-        match translate_module(&data, &mut StandaloneRuntime::new()) {
-            Ok(x) => x,
-            Err(string) => {
-                terminal.fg(term::color::RED).unwrap();
-                println!(" error");
-                terminal.reset().unwrap();
-                return Err(string);
-            }
-        }
-    } else {
-        match translate_module(&data, &mut DummyRuntime::new()) {
+    let mut dummy_runtime = DummyRuntime::new();
+    let mut standalone_runtime = StandaloneRuntime::new();
+    let translation = {
+        let mut runtime: &mut WasmRuntime = if args.flag_execute {
+            &mut standalone_runtime
+        } else {
+            &mut dummy_runtime
+        };
+        match translate_module(&data, runtime) {
             Ok(x) => x,
             Err(string) => {
                 terminal.fg(term::color::RED).unwrap();
@@ -148,7 +150,6 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
         terminal.fg(term::color::GREEN).unwrap();
         println!(" ok");
         terminal.reset().unwrap();
-
     }
     if args.flag_execute {
         terminal.fg(term::color::YELLOW).unwrap();
@@ -167,6 +168,56 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                 return Err(s);
             }
         };
+        if args.flag_memory {
+            let mut input = String::new();
+            terminal.fg(term::color::YELLOW).unwrap();
+            print!("Inspect memory [y/n]: ");
+            terminal.reset().unwrap();
+            let _ = stdout().flush();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {
+                    input.pop();
+                    if input == "y" || input == "Y" {
+                        terminal.fg(term::color::MAGENTA).unwrap();
+                        println!("Type 'quit' to exit.");
+                        terminal.reset().unwrap();
+                        loop {
+                            input.clear();
+                            terminal.fg(term::color::YELLOW).unwrap();
+                            print!("Memory index, offset, length (e.g. 0,0,4): ");
+                            terminal.reset().unwrap();
+                            let _ = stdout().flush();
+                            match io::stdin().read_line(&mut input) {
+                                Ok(_) => {
+                                    input.pop();
+                                    if input == "quit" {
+                                        break;
+                                    }
+                                    let split: Vec<&str> = input.split(",").collect();
+                                    if split.len() != 3 {
+                                        break;
+                                    }
+                                    let memory = standalone_runtime
+                                        .inspect_memory(str::parse(split[0]).unwrap(),
+                                                        str::parse(split[1]).unwrap(),
+                                                        str::parse(split[2]).unwrap());
+                                    let s = memory
+                                        .iter()
+                                        .fold(String::from("#"), |mut acc, byte| {
+                                            acc.push_str(format!("{:02x}", byte).as_str());
+                                            acc
+                                        });
+                                    println!("{}", s);
+                                }
+                                Err(error) => return Err(String::from(error.description())),
+                            }
+                        }
+                    }
+                }
+                Err(error) => return Err(String::from(error.description())),
+            }
+
+        }
     }
     Ok(())
 }
@@ -250,5 +301,10 @@ fn pretty_print_translation(filename: &String,
         write!(writer_cretonne, "{}\n", function_str)?;
         function_index += 1;
     }
-    Ok(())
+    loop {
+        match parser.read() {
+            &ParserState::EndWasm => return Ok(()),
+            s @ _ => parser_writer.write(&s)?,
+        }
+    }
 }
