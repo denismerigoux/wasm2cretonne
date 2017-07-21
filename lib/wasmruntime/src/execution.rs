@@ -23,10 +23,11 @@ impl RelocSink for DummyRelocSink {
 }
 
 /// Executes a module that has been translated with the `StandaloneRuntime` runtime implementation.
-pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
+/// Recognized ISAs are `"intel"`, `"riscv"`, `"arm32"`, `"arm64"`.
+pub fn execute_module(trans_result: &TranslationResult, isa: &str) -> Result<(), String> {
     let shared_builder = settings::builder();
     let shared_flags = settings::Flags::new(&shared_builder);
-    let isa = match isa::lookup("intel") {
+    let isa = match isa::lookup(isa) {
         None => {
             panic!() // The Intel target ISA is not available.
         }

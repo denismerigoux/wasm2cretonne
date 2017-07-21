@@ -40,7 +40,7 @@ let translation = match translate_module(&data, &mut runtime) {
         panic!(string);
     }
 };
-execute_module(&translation);
+execute_module(&translation, "intel");
 println!("Memory after execution: {:?}", runtime.inspect_memory(0,0,4));
 ```
 
@@ -48,7 +48,7 @@ println!("Memory after execution: {:?}", runtime.inspect_memory(0,0,4));
 
 The binary created by the root crate of this repo is an utility to parse, translate, compile and execute wasm binaries using Cretonne. Use `--help` to lookup its options.
 
-The tool only reads binary WebAssembly so you'll have to manually encode your source files with the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabt).
+The tool only reads binary WebAssembly so you'll have to manually encode your source files with the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabct).
 
 ### Example
 
