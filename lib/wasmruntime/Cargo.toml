@@ -1,0 +1,12 @@
+[package]
+name = "wasmruntime"
+version = "0.0.0"
+authors = ["The Cretonne Project Developers"]
+publish = false
+
+[dependencies]
+cretonne = { git = "https://github.com/stoklund/cretonne.git" }
+cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
+wasm2cretonne = { path = "../wasm2cretonne" }
+byteorder = "1"
+region = "0.0.8"

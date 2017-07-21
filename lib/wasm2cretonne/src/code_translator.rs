@@ -2,34 +2,14 @@ use cretonne::ir::{Function, Signature, Value, Type, InstBuilder, FunctionName, 
                    SigRef, ExtFuncData, Inst, MemFlags};
 use cretonne::ir::types::*;
 use cretonne::ir::immediates::{Ieee32, Ieee64, Offset32};
-use cretonne::verifier::verify_function;
 use cretonne::ir::condcodes::{IntCC, FloatCC};
-use cretonne::entity_ref::EntityRef;
 use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, return_values_types,
-                        Memory, Global};
+                        Local, GlobalIndex, FunctionIndex, SignatureIndex};
 use std::collections::{HashMap, HashSet};
+use runtime::WasmRuntime;
 use std::u32;
-
-// An opaque reference to local variable in wasm.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Local(u32);
-impl EntityRef for Local {
-    fn new(index: usize) -> Self {
-        assert!(index < (u32::MAX as usize));
-        Local(index as u32)
-    }
-
-    fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-impl Default for Local {
-    fn default() -> Local {
-        Local(u32::MAX)
-    }
-}
 
 #[derive(Debug)]
 enum ControlStackFrame {
@@ -97,10 +77,11 @@ struct TranslationState {
     br_table_reachable_ebbs: HashSet<Ebb>,
 }
 
-struct FunctionImports {
+#[derive(Clone,Debug)]
+pub struct FunctionImports {
     /// Mappings index in function index space -> index in function local imports
-    functions: HashMap<usize, FuncRef>,
-    signatures: HashMap<usize, SigRef>,
+    pub functions: HashMap<FunctionIndex, FuncRef>,
+    pub signatures: HashMap<SignatureIndex, SigRef>,
 }
 
 impl FunctionImports {
@@ -114,16 +95,16 @@ impl FunctionImports {
 
 /// Returns a well-formed Cretonne IL function from a wasm function body and a signature.
 pub fn translate_function_body(parser: &mut Parser,
-                               function_index: u32,
+                               function_index: FunctionIndex,
                                sig: Signature,
-                               locals: &Vec<(u32, Type)>,
-                               exports: &Option<HashMap<u32, String>>,
+                               locals: &Vec<(usize, Type)>,
+                               exports: &Option<HashMap<FunctionIndex, String>>,
                                signatures: &Vec<Signature>,
-                               functions: &Vec<u32>,
-                               memories: Option<Vec<Memory>>,
-                               globals: &Option<Vec<Global>>,
-                               il_builder: &mut ILBuilder<Local>)
-                               -> Result<Function, String> {
+                               functions: &Vec<SignatureIndex>,
+                               il_builder: &mut ILBuilder<Local>,
+                               runtime: &mut WasmRuntime)
+                               -> Result<(Function, FunctionImports), String> {
+    runtime.next_function();
     let mut func = Function::new();
     let args_num: usize = sig.argument_types.len();
     let args_types: Vec<Type> = sig.argument_types
@@ -140,10 +121,6 @@ pub fn translate_function_body(parser: &mut Parser,
             }
         }
     }
-    let mut memory = match memories {
-        None => None,
-        Some(mems) => Some(mems[0]),
-    };
     let mut func_imports = FunctionImports::new();
     let mut stack: Vec<Value> = Vec::new();
     let mut control_stack: Vec<ControlStackFrame> = Vec::new();
@@ -193,7 +170,8 @@ pub fn translate_function_body(parser: &mut Parser,
                            });
         loop {
             let parser_state = parser.read();
-            // println!("Now translating: {:?} ({},{}), stack: {:?}",
+            // println!("{}\nNow translating: {:?} ({},{}), stack: {:?}",
+            //          builder.display(None),
             //          parser_state,
             //          state.real_unreachable_stack_depth,
             //          state.phantom_unreachable_stack_depth,
@@ -285,6 +263,7 @@ pub fn translate_function_body(parser: &mut Parser,
                         // the proper translation
                         translate_operator(op,
                                            &mut builder,
+                                           runtime,
                                            &mut stack,
                                            &mut control_stack,
                                            &mut state,
@@ -292,8 +271,6 @@ pub fn translate_function_body(parser: &mut Parser,
                                            &functions,
                                            &signatures,
                                            &exports,
-                                           &mut memory,
-                                           &globals,
                                            &mut func_imports)
                     }
                 }
@@ -320,29 +297,21 @@ pub fn translate_function_body(parser: &mut Parser,
             builder.ins().return_(return_vals.as_slice());
         }
     }
-    // TODO: remove the verification in production
-    match verify_function(&func, None) {
-        Ok(()) => {Ok(func)}
-        Err(err) => {
-            println!("{}", func.display(None));
-            Err(format!("({}) {}", err.location, err.message))
-        }
-    }
+    Ok((func, func_imports))
 }
 
 /// Translates wasm operators into Cretonne IL instructions. Returns `true` if it inserted
 /// a return.
 fn translate_operator(op: &Operator,
                       builder: &mut FunctionBuilder<Local>,
+                      runtime: &mut WasmRuntime,
                       stack: &mut Vec<Value>,
                       control_stack: &mut Vec<ControlStackFrame>,
                       state: &mut TranslationState,
                       sig: &Signature,
-                      functions: &Vec<u32>,
+                      functions: &Vec<SignatureIndex>,
                       signatures: &Vec<Signature>,
-                      exports: &Option<HashMap<u32, String>>,
-                      memory: &mut Option<Memory>,
-                      globals: &Option<Vec<Global>>,
+                      exports: &Option<HashMap<FunctionIndex, String>>,
                       func_imports: &mut FunctionImports) {
     state.last_inst_return = false;
     match *op {
@@ -352,23 +321,12 @@ fn translate_operator(op: &Operator,
             builder.def_var(Local(local_index), val);
         }
         Operator::GetGlobal { global_index } => {
-            // TODO: add runtime support
-            let ref glob = match globals {
-                &None => panic!("no declared globals"),
-                &Some(ref globs) => globs.get(global_index as usize).unwrap(),
-            };
-            let val = match glob.ty {
-                I32 => builder.ins().iconst(glob.ty, -1),
-                I64 => builder.ins().iconst(glob.ty, -1),
-                F32 => builder.ins().f32const(Ieee32::new(-1.0)),
-                F64 => builder.ins().f64const(Ieee64::new(-1.0)),
-                _ => panic!("should not happen"),
-            };
+            let val = runtime.translate_get_global(builder, global_index as GlobalIndex);
             stack.push(val);
         }
-        Operator::SetGlobal { global_index: _ } => {
-            // TODO: add runtime support
-            stack.pop().unwrap();
+        Operator::SetGlobal { global_index } => {
+            let val = stack.pop().unwrap();
+            runtime.translate_set_global(builder, global_index as GlobalIndex, val);
         }
         Operator::TeeLocal { local_index } => {
             let val = stack.last().unwrap();
@@ -622,119 +580,116 @@ fn translate_operator(op: &Operator,
             // TODO: have runtime support for tables
             let sigref = find_signature_import(index as usize, builder, func_imports, signatures);
             let args_num = builder.signature(sigref).unwrap().argument_types.len();
-            let val = stack.pop().unwrap();
+            let index_val = stack.pop().unwrap();
             let cut_index = stack.len() - args_num;
             let call_args = stack.split_off(cut_index);
-            let call_inst = builder
-                .ins()
-                .call_indirect(sigref, val, call_args.as_slice());
-            let ret_values = builder.inst_results(call_inst);
+            let ret_values =
+                runtime.translate_call_indirect(builder, sigref, index_val, call_args.as_slice());
             for val in ret_values {
                 stack.push(*val);
             }
         }
-        Operator::GrowMemory { .. } => {
-            //TODO: translate this with runtime support
-            stack.pop().unwrap();
+        Operator::GrowMemory { reserved: _ } => {
+            let val = stack.pop().unwrap();
+            stack.push(runtime.translate_grow_memory(builder, val));
         }
-        Operator::CurrentMemory { .. } => {
-            //TODO: translate this with runtime support
-            stack.push(builder.ins().iconst(I32, -1));
+        Operator::CurrentMemory { reserved: _ } => {
+            stack.push(runtime.translate_current_memory(builder));
         }
         Operator::I32Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().uload8(I32, memflags, addr, memoffset))
         }
         Operator::I32Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().uload8(I32, memflags, addr, memoffset))
         }
         Operator::I32Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().sload8(I32, memflags, addr, memoffset))
         }
         Operator::I32Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().sload8(I32, memflags, addr, memoffset))
         }
         Operator::I64Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().uload8(I64, memflags, addr, memoffset))
         }
         Operator::I64Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().uload16(I64, memflags, addr, memoffset))
         }
         Operator::I64Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().sload8(I64, memflags, addr, memoffset))
         }
         Operator::I64Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().sload16(I64, memflags, addr, memoffset))
         }
         Operator::I64Load32S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().sload32(memflags, addr, memoffset))
         }
         Operator::I64Load32U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().uload32(memflags, addr, memoffset))
         }
         Operator::I32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().load(I32, memflags, addr, memoffset))
         }
         Operator::F32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().load(F32, memflags, addr, memoffset))
         }
         Operator::I64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().load(I64, memflags, addr, memoffset))
         }
         Operator::F64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             stack.push(builder.ins().load(F64, memflags, addr, memoffset))
@@ -743,35 +698,35 @@ fn translate_operator(op: &Operator,
         Operator::I64Store { memory_immediate: MemoryImmediate { flags: _, offset } } |
         Operator::F32Store { memory_immediate: MemoryImmediate { flags: _, offset } } |
         Operator::F64Store { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
             let val = stack.pop().unwrap();
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             builder.ins().store(memflags, val, addr, memoffset);
         }
         Operator::I32Store8 { memory_immediate: MemoryImmediate { flags: _, offset } } |
         Operator::I64Store8 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
             let val = stack.pop().unwrap();
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             builder.ins().istore8(memflags, val, addr, memoffset);
         }
         Operator::I32Store16 { memory_immediate: MemoryImmediate { flags: _, offset } } |
         Operator::I64Store16 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
             let val = stack.pop().unwrap();
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             builder.ins().istore16(memflags, val, addr, memoffset);
         }
         Operator::I64Store32 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
-            memory.expect("no memory declared");
             let val = stack.pop().unwrap();
-            let addr = stack.pop().unwrap();
+            let base = runtime.translate_memory_base_adress(builder, 0);
+            let addr = builder.ins().iadd(base, stack.pop().unwrap());
             let memflags = MemFlags::new();
             let memoffset = Offset32::new(offset as i32);
             builder.ins().istore32(memflags, val, addr, memoffset);
@@ -1152,17 +1107,20 @@ fn translate_operator(op: &Operator,
     }
 }
 
-fn args_count(index: usize, functions: &Vec<u32>, signatures: &Vec<Signature>) -> usize {
+fn args_count(index: FunctionIndex,
+              functions: &Vec<SignatureIndex>,
+              signatures: &Vec<Signature>)
+              -> usize {
     signatures[functions[index] as usize].argument_types.len()
 }
 
 // Given a index in the function index space, search for it in the function imports and if it is
 // not there add it to the function imports.
-fn find_function_import(index: usize,
+fn find_function_import(index: FunctionIndex,
                         builder: &mut FunctionBuilder<Local>,
                         func_imports: &mut FunctionImports,
-                        functions: &Vec<u32>,
-                        exports: &Option<HashMap<u32, String>>,
+                        functions: &Vec<SignatureIndex>,
+                        exports: &Option<HashMap<FunctionIndex, String>>,
                         signatures: &Vec<Signature>)
                         -> FuncRef {
     match func_imports.functions.get(&index) {
@@ -1178,7 +1136,7 @@ fn find_function_import(index: usize,
                                             name: match exports {
                                                 &None => FunctionName::new(""),
                                                 &Some(ref exports) => {
-                                                    match exports.get(&(index as u32)) {
+                                                    match exports.get(&index) {
                                                         None => FunctionName::new(""),
                                                         Some(name) => {
                                                             FunctionName::new(name.clone())
@@ -1203,7 +1161,7 @@ fn find_function_import(index: usize,
                                     name: match exports {
                                         &None => FunctionName::new(""),
                                         &Some(ref exports) => {
-                                            match exports.get(&(index as u32)) {
+                                            match exports.get(&index) {
                                                 None => FunctionName::new(""),
                                                 Some(name) => FunctionName::new(name.clone()),
                                             }
@@ -1215,7 +1173,7 @@ fn find_function_import(index: usize,
     local_func_index
 }
 
-fn find_signature_import(sig_index: usize,
+fn find_signature_import(sig_index: SignatureIndex,
                          builder: &mut FunctionBuilder<Local>,
                          func_imports: &mut FunctionImports,
                          signatures: &Vec<Signature>)

@@ -2,6 +2,8 @@
 
 [Cretonne](https://github.com/stoklund/cretonne) frontend for WebAssembly. Reads wasm binary modules and translate the functions it contains into Cretonne IL functions.
 
+The translation needs some info about the runtime in order to handle the wasm instructions `get_global`, `set_global`, and `call_indirect`. These informations are included in structs implementing the `WasmRuntime` trait like `DummyRuntime` or `StandaloneRuntime`.
+
 ## Example
 
 ```rust
@@ -23,7 +25,8 @@ let data = match read_wasm_file(path.to_path_buf()) {
         panic!("Error: {}", err);
     }
 };
-let funcs = match translate_module(&data) {
+let mut runtime = StandaloneRuntime::new();
+let funcs = match translate_module(&data, &mut runtime) {
     Ok(funcs) => funcs,
     Err(string) => {
         panic!(string);
@@ -31,12 +34,6 @@ let funcs = match translate_module(&data) {
 };
 ```
 
-## Limitations
+## Standalone runtime specification
 
-Runtime support is missing for now. Particularly:
-
-* `set_global` and `get_global`;
-* `grow_memory` and `current_memory`;
-* tables for `call_indirect`.
-
-These instructions are translated with placeholders.
+The `StandaloneRuntime` is a setup for in-memory execution of the module being translated. It allocates memory for the wasm linear memories, the globals and the tables and embeds the addresses of these memories inside the generated Cretonne IL functions.

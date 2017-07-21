@@ -5,15 +5,12 @@ extern crate cretonne;
 mod module_translator;
 mod translation_utils;
 mod code_translator;
+mod runtime;
 mod sections_translator;
 
-pub use module_translator::translate_module;
-
-/// Version number of the cretonne crate.
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
-}
+pub use module_translator::{translate_module, TranslationResult};
+pub use module_translator::FunctionTranslation;
+pub use runtime::{WasmRuntime, DummyRuntime, Global, GlobalInit, Table, Memory};
+pub use code_translator::FunctionImports;
+pub use translation_utils::{Local, FunctionIndex, GlobalIndex, TableIndex, MemoryIndex, RawByte,
+                            Address};

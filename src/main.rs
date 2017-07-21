@@ -1,4 +1,5 @@
 extern crate wasm2cretonne;
+extern crate wasmruntime;
 extern crate wasmparser;
 extern crate cretonne;
 extern crate wasmtext;
@@ -8,30 +9,34 @@ extern crate serde;
 extern crate serde_derive;
 extern crate term;
 
-use wasm2cretonne::translate_module;
-use cretonne::ir::Function;
+use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime};
+use wasmruntime::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
 use wasmtext::Writer;
 use std::fs::File;
 use std::error::Error;
 use std::io;
-use std::io::{BufReader, stdout, stdin};
+use std::io::{BufReader, stdout};
 use std::io::prelude::*;
 use docopt::Docopt;
 use std::fs;
 use std::path::Path;
 
 const USAGE: &str = "
-Wasm to Cretonne IL translation utility
+Wasm to Cretonne IL translation utility.
+Takes a binary WebAssembly module and returns its functions in Cretonne IL format.
+The translation is dependent on the runtime chosen.
+The default is a dummy runtime that produces placeholder values.
 
 Usage:
-    cton-util [-i] file <file>...
-    cton-util [-i] all
+    cton-util [-ve] file <file>...
+    cton-util [-ve] all
     cton-util --help | --version
 
 Options:
-    -i, --interactive   displays the translated functions
+    -v, --verbose       displays the module and translated functions
+    -e, --execute       enable the standalone runtime and executes the start function of the module
     -h, --help          print this help message
     --version           print the Cretonne version
 ";
@@ -40,7 +45,8 @@ Options:
 struct Args {
     cmd_all: bool,
     arg_file: Vec<String>,
-    flag_interactive: bool,
+    flag_verbose: bool,
+    flag_execute: bool,
 }
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
@@ -59,7 +65,10 @@ fn main() {
     let mut terminal = term::stdout().unwrap();
 
     if args.cmd_all {
-        let mut paths: Vec<_> = fs::read_dir("tests").unwrap().map(|r| r.unwrap()).collect();
+        let mut paths: Vec<_> = fs::read_dir("testsuite")
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         let total_files = paths.len();
         paths.sort_by_key(|dir| dir.path());
 
@@ -67,7 +76,7 @@ fn main() {
         for path in paths {
             let path = path.path();
             let name = String::from(path.as_os_str().to_string_lossy());
-            match handle_module(args.flag_interactive, path, name) {
+            match handle_module(&args, path, name) {
                 Ok(()) => files_ok +=1,
                 Err(message) => println!("{}", message),
             };
@@ -79,20 +88,20 @@ fn main() {
                  100.0 * (files_ok as f32) / (total_files as f32));
         terminal.reset().unwrap();
     }
-    for filename in args.arg_file {
+    for filename in args.arg_file.iter() {
         let path = Path::new(&filename);
         let name = String::from(path.as_os_str().to_string_lossy());
-        match handle_module(args.flag_interactive, path.to_path_buf(), name) {
+        match handle_module(&args, path.to_path_buf(), name) {
             Ok(()) => {}
             Err(message) => println!("{}", message),
         }
     }
 }
 
-fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), String> {
+fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String> {
     let mut terminal = term::stdout().unwrap();
     terminal.fg(term::color::YELLOW).unwrap();
-    print!("Testing: ");
+    print!("Translating: ");
     terminal.reset().unwrap();
     print!("\"{}\"", name);
     let data = match read_wasm_file(path) {
@@ -102,40 +111,82 @@ fn handle_module(interactive: bool, path: PathBuf, name: String) -> Result<(), S
             return Err(String::from(err.description()));
         }
     };
-    let funcs = match translate_module(&data) {
-        Ok(funcs) => funcs,
-        Err(string) => {
-            terminal.fg(term::color::RED).unwrap();
-            println!(" error");
-            terminal.reset().unwrap();
-            return Err(string);
+    let translation = if args.flag_execute {
+        match translate_module(&data, &mut StandaloneRuntime::new()) {
+            Ok(x) => x,
+            Err(string) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!(" error");
+                terminal.reset().unwrap();
+                return Err(string);
+            }
+        }
+    } else {
+        match translate_module(&data, &mut DummyRuntime::new()) {
+            Ok(x) => x,
+            Err(string) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!(" error");
+                terminal.reset().unwrap();
+                return Err(string);
+            }
         }
     };
-    if interactive {
+    if args.flag_verbose {
         println!();
         let mut writer1 = stdout();
         let mut writer2 = stdout();
-        match pretty_print_translation(&name, &data, &funcs, &mut writer1, &mut writer2) {
+        match pretty_print_translation(&name, &data, &translation, &mut writer1, &mut writer2) {
             Err(error) => return Err(String::from(error.description())),
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                terminal.fg(term::color::GREEN).unwrap();
+                println!("ok");
+                terminal.reset().unwrap();
+            }
         }
     } else {
         terminal.fg(term::color::GREEN).unwrap();
         println!(" ok");
         terminal.reset().unwrap();
-        Ok(())
+
     }
+    if args.flag_execute {
+        terminal.fg(term::color::YELLOW).unwrap();
+        println!("Compiling and executing module...");
+        terminal.reset().unwrap();
+        match execute_module(&translation) {
+            Ok(()) => {
+                terminal.fg(term::color::GREEN).unwrap();
+                println!("ok");
+                terminal.reset().unwrap();
+            }
+            Err(s) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!("error");
+                terminal.reset().unwrap();
+                return Err(s);
+            }
+        };
+    }
+    Ok(())
 }
 
 fn pretty_print_translation(filename: &String,
                             data: &Vec<u8>,
-                            funcs: &Vec<Function>,
+                            translation: &TranslationResult,
                             writer_wast: &mut Write,
                             writer_cretonne: &mut Write)
                             -> Result<(), io::Error> {
     let mut terminal = term::stdout().unwrap();
     let mut parser = Parser::new(data.as_slice());
     let mut parser_writer = Writer::new(writer_wast);
+    let imports_count = translation
+        .functions
+        .iter()
+        .fold(0, |acc, &ref f| match f {
+            &FunctionTranslation::Import() => acc + 1,
+            &FunctionTranslation::Code { .. } => acc,
+        });
     match parser.read() {
         s @ &ParserState::BeginWasm { .. } => parser_writer.write(&s)?,
         _ => panic!("modules should begin properly"),
@@ -184,16 +235,19 @@ fn pretty_print_translation(filename: &String,
                 };
             }
         }
-        let mut function_string = format!("  {}", funcs[function_index].display(None));
+        let mut function_string =
+            format!("  {}",
+                    match translation.functions[function_index + imports_count] {
+                            FunctionTranslation::Code { ref il, .. } => il,
+                            FunctionTranslation::Import() => panic!("should not happen"),
+                        }
+                        .display(None));
         function_string.pop();
         let function_str = str::replace(function_string.as_str(), "\n", "\n  ");
         terminal.fg(term::color::CYAN).unwrap();
         write!(writer_cretonne, "Cretonne IL --->\n")?;
         terminal.reset().unwrap();
         write!(writer_cretonne, "{}\n", function_str)?;
-        let mut input = String::new();
-        stdin().read_line(&mut input)?;
-
         function_index += 1;
     }
     Ok(())
