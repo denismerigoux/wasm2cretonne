@@ -3,6 +3,8 @@ use cretonne;
 use std::mem;
 use std::u32;
 use runtime::{Global, Memory, Table};
+use code_translator;
+use module_translator;
 
 pub type FunctionIndex = usize;
 pub type TableIndex = usize;
@@ -69,4 +71,16 @@ pub fn return_values_types(ty: wasmparser::Type) -> Result<Vec<cretonne::ir::Typ
         wasmparser::Type::F64 => Ok(vec![cretonne::ir::types::F64]),
         _ => panic!("unsupported return value type"),
     }
+}
+
+pub fn invert_hashmaps(imports: code_translator::FunctionImports)
+                       -> module_translator::ImportMappings {
+    let mut new_imports = module_translator::ImportMappings::new();
+    for (func_index, func_ref) in imports.functions.iter() {
+        new_imports.functions.insert(*func_ref, *func_index);
+    }
+    for (sig_index, sig_ref) in imports.signatures.iter() {
+        new_imports.signatures.insert(*sig_ref, *sig_index);
+    }
+    new_imports
 }

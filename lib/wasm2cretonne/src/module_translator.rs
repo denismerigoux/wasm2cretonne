@@ -3,9 +3,9 @@ use sections_translator::{SectionParsingError, parse_function_signatures, parse_
                           parse_function_section, parse_export_section, parse_memory_section,
                           parse_global_section, parse_table_section, parse_elements_section,
                           parse_data_section};
-use translation_utils::{type_to_type, Import, SignatureIndex, FunctionIndex};
-use cretonne::ir::{Function, Type};
-use code_translator::{translate_function_body, FunctionImports};
+use translation_utils::{type_to_type, Import, SignatureIndex, FunctionIndex, invert_hashmaps};
+use cretonne::ir::{Function, Type, FuncRef, SigRef};
+use code_translator::translate_function_body;
 use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 use runtime::WasmRuntime;
@@ -14,13 +14,30 @@ pub struct TranslationResult {
     pub functions: Vec<FunctionTranslation>,
     pub start_index: Option<FunctionIndex>,
 }
+
 #[derive(Clone)]
 pub enum FunctionTranslation {
     Code {
         il: Function,
-        imports: FunctionImports,
+        imports: ImportMappings,
     },
     Import(),
+}
+
+#[derive(Clone,Debug)]
+pub struct ImportMappings {
+    /// Mappings index in function index space -> index in function local imports
+    pub functions: HashMap<FuncRef, FunctionIndex>,
+    pub signatures: HashMap<SigRef, SignatureIndex>,
+}
+
+impl ImportMappings {
+    pub fn new() -> ImportMappings {
+        ImportMappings {
+            functions: HashMap::new(),
+            signatures: HashMap::new(),
+        }
+    }
 }
 
 /// Translate a sequence of bytes forming a valid Wasm binary into a list of valid Cretonne IL
@@ -232,7 +249,7 @@ pub fn translate_module(data: &Vec<u8>,
             Ok((il_func, imports)) => {
                 il_functions.push(FunctionTranslation::Code {
                                       il: il_func,
-                                      imports,
+                                      imports: invert_hashmaps(imports),
                                   })
             }
             Err(s) => return Err(s),
@@ -258,5 +275,4 @@ pub fn translate_module(data: &Vec<u8>,
             _ => (),
         }
     }
-
 }
