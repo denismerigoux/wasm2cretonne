@@ -1,5 +1,5 @@
 extern crate wasm2cretonne;
-extern crate wasmruntime;
+extern crate wasmstandalone;
 extern crate wasmparser;
 extern crate cretonne;
 extern crate wasmtext;
@@ -11,7 +11,7 @@ extern crate term;
 
 use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime,
                     WasmRuntime};
-use wasmruntime::{StandaloneRuntime, execute_module};
+use wasmstandalone::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
 use wasmtext::Writer;

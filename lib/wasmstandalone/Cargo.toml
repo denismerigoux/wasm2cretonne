@@ -1,5 +1,5 @@
 [package]
-name = "wasmruntime"
+name = "wasmstandalone"
 version = "0.0.0"
 authors = ["The Cretonne Project Developers"]
 publish = false

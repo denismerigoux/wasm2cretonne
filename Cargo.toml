@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 wasm2cretonne = { path = "lib/wasm2cretonne" }
-wasmruntime = { path = "lib/wasmruntime" }
+wasmstandalone = { path = "lib/wasmstandalone" }
 wasmparser = "0.6.1"
 cretonne = { git = "https://github.com/stoklund/cretonne.git" }
 cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
