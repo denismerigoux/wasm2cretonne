@@ -6,9 +6,9 @@ use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, F
 use cretonne::ir::types::*;
 use cretonne::ir::condcodes::IntCC;
 use cretonne::ir::immediates::Offset32;
-use byteorder::{LittleEndian, WriteBytesExt};
 use std::mem::transmute;
 use std::ptr::copy_nonoverlapping;
+use std::ptr::write;
 
 #[derive(Clone, Debug)]
 enum TableElement {
@@ -196,42 +196,38 @@ impl WasmRuntime for StandaloneRuntime {
         self.globals.data.resize(globals_data_size as usize, 0);
         for globalinfo in self.globals.info.iter() {
             match globalinfo.global.initializer {
-                GlobalInit::I32Const(val) => {
-                    self.globals
-                        .data
-                        .as_mut_slice()
-                        .split_at_mut(globalinfo.offset as usize)
-                        .1
-                        .write_i32::<LittleEndian>(val)
-                        .unwrap();
-                }
-                GlobalInit::I64Const(val) => {
-                    self.globals
-                        .data
-                        .as_mut_slice()
-                        .split_at_mut(globalinfo.offset as usize)
-                        .1
-                        .write_i64::<LittleEndian>(val)
-                        .unwrap();
-                }
-                GlobalInit::F32Const(val) => {
-                    self.globals
-                        .data
-                        .as_mut_slice()
-                        .split_at_mut(globalinfo.offset as usize)
-                        .1
-                        .write_f32::<LittleEndian>(unsafe { transmute(val) })
-                        .unwrap();
-                }
-                GlobalInit::F64Const(val) => {
-                    self.globals
-                        .data
-                        .as_mut_slice()
-                        .split_at_mut(globalinfo.offset as usize)
-                        .1
-                        .write_f64::<LittleEndian>(unsafe { transmute(val) })
-                        .unwrap();
-                }
+                GlobalInit::I32Const(val) => unsafe {
+                    write(self.globals
+                              .data
+                              .as_mut_ptr()
+                              .offset(globalinfo.offset as isize) as
+                          *mut i32,
+                          val)
+                },
+                GlobalInit::I64Const(val) => unsafe {
+                    write(self.globals
+                              .data
+                              .as_mut_ptr()
+                              .offset(globalinfo.offset as isize) as
+                          *mut i64,
+                          val)
+                },
+                GlobalInit::F32Const(val) => unsafe {
+                    write(self.globals
+                              .data
+                              .as_mut_ptr()
+                              .offset(globalinfo.offset as isize) as
+                          *mut f32,
+                          transmute(val))
+                },
+                GlobalInit::F64Const(val) => unsafe {
+                    write(self.globals
+                              .data
+                              .as_mut_ptr()
+                              .offset(globalinfo.offset as isize) as
+                          *mut f64,
+                          transmute(val))
+                },
                 GlobalInit::Import() => {
                     // We don't initialize, this is inter-module linking
                     // TODO: support inter-module imports
