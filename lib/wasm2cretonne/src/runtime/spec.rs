@@ -1,49 +1,13 @@
-//! All the runtime support necessary for the wasm -> cretonne translation is formalized by the
+//! All the runtime support necessary for the wasm to cretonne translation is formalized by the
 //! trait `WasmRuntime`.
 use cton_frontend::FunctionBuilder;
-use cretonne::ir::{Value, Type, SigRef};
-use translation_utils::{Local, FunctionIndex, TableIndex, GlobalIndex, MemoryIndex};
+use cretonne::ir::{Value, SigRef};
+use translation_utils::{Local, FunctionIndex, TableIndex, GlobalIndex, MemoryIndex, Global, Table,
+                        Memory};
 
-
-/// Struct that models Wasm globals
-#[derive(Debug,Clone,Copy)]
-pub struct Global {
-    pub ty: Type,
-    pub mutability: bool,
-    pub initializer: GlobalInit,
-}
-
-#[derive(Debug,Clone,Copy)]
-pub enum GlobalInit {
-    I32Const(i32),
-    I64Const(i64),
-    F32Const(u32),
-    F64Const(u64),
-    Import(),
-    ImportRef(usize),
-}
-
-/// Struct that models Wasm tables
-#[derive(Debug,Clone,Copy)]
-pub struct Table {
-    pub ty: TableElementType,
-    pub size: usize,
-    pub maximum: Option<usize>,
-}
-
-#[derive(Debug,Clone,Copy)]
-pub enum TableElementType {
-    Val(Type),
-    Func(),
-}
-
-/// Struct that models the Wasm linear memory
-#[derive(Debug,Clone,Copy)]
-pub struct Memory {
-    pub pages_count: usize,
-    pub maximum: Option<usize>,
-}
-
+/// An object satisfyng the `WasmRuntime` trait can be passed as argument to the
+/// [`translate_module`](fn.translate_module.html) function. These methods should not be called
+/// by the user, they are only for the `wasm2cretonne` internal use.
 pub trait WasmRuntime {
     /// Declares a global to the runtime.
     fn declare_global(&mut self, global: Global);
@@ -77,16 +41,17 @@ pub trait WasmRuntime {
                             builder: &mut FunctionBuilder<Local>,
                             global_index: GlobalIndex,
                             val: Value);
-    /// Translates a `grow_memory` wasm instruction.
+    /// Translates a `grow_memory` wasm instruction. Returns the old size (in pages) of the memory.
     fn translate_grow_memory(&mut self, builder: &mut FunctionBuilder<Local>, val: Value) -> Value;
-    /// Translates a `current_memory` wasm instruction.
+    /// Translates a `current_memory` wasm instruction. Returns the size in pages of the memory.
     fn translate_current_memory(&mut self, builder: &mut FunctionBuilder<Local>) -> Value;
-    /// Returns the ase address of a wasm memory as a Cretonne `Value`.
+    /// Returns the base address of a wasm memory as a Cretonne `Value`.
     fn translate_memory_base_adress(&self,
                                     builder: &mut FunctionBuilder<Local>,
                                     index: MemoryIndex)
                                     -> Value;
-    /// Translates a `call_indirect` wasm instruction.
+    /// Translates a `call_indirect` wasm instruction. It involves looking up the value contained
+    /// it the table at location `index_val` and calling the corresponding function.
     fn translate_call_indirect<'a>(&self,
                                    builder: &'a mut FunctionBuilder<Local>,
                                    sig_ref: SigRef,

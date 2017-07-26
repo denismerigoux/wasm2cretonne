@@ -1,5 +1,5 @@
 [package]
-name = "wasm2cretonne-tools"
+name = "wasm2cretonne-util"
 version = "0.0.0"
 authors = ["The Cretonne Project Developers"]
 publish = false

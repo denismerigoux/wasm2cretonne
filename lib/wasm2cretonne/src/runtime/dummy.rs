@@ -1,17 +1,20 @@
-use runtime::{Global, Table, WasmRuntime, Memory};
-use translation_utils::{Local, GlobalIndex, TableIndex, FunctionIndex, MemoryIndex};
+use runtime::WasmRuntime;
+use translation_utils::{Local, Global, Memory, Table, GlobalIndex, TableIndex, FunctionIndex,
+                        MemoryIndex};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{Value, InstBuilder, SigRef};
 use cretonne::ir::immediates::{Ieee32, Ieee64};
 use cretonne::ir::types::*;
 
-
+/// This runtime implementation is a "naïve" one, doing essentially nothing and emitting
+/// placeholders when forced to. Don't try to execute code translated with this runtime, it is
+/// essentially here for translation debug purposes.
 pub struct DummyRuntime {
     globals: Vec<Global>,
 }
 
 impl DummyRuntime {
-    /// Allocates the runtime data structures
+    /// Allocates the runtime data structures.
     pub fn new() -> DummyRuntime {
         DummyRuntime { globals: Vec::new() }
     }

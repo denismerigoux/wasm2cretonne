@@ -1,5 +1,15 @@
-use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, SignatureIndex,
-                        MemoryIndex};
+//! Helper functions to gather information for each of the non-function sections of a
+//! WebAssembly module.
+//!
+//! The code of theses helper function is straightforward since it is only about reading metadata
+//! about linear memories, tables, globals, etc. and storing them for later use.
+//!
+//! The special case of the initialize expressions for table elements offsets or global variables
+//! is handled, according to the semantics of WebAssembly, to only specific expressions that are
+//! interpreted on the fly.
+use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, GlobalIndex,
+                        SignatureIndex, MemoryIndex, Global, GlobalInit, Table, TableElementType,
+                        Memory};
 use cretonne::ir::{Signature, ArgumentType};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
@@ -7,7 +17,7 @@ use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, External
 use wasmparser;
 use std::collections::HashMap;
 use std::str::from_utf8;
-use runtime::{WasmRuntime, Global, GlobalInit, Table, TableElementType, Memory};
+use runtime::WasmRuntime;
 
 pub enum SectionParsingError {
     WrongSectionContent(String),
@@ -188,7 +198,7 @@ pub fn parse_global_section(parser: &mut Parser,
                 GlobalInit::F64Const(value.bits())
             }
             ParserState::InitExpressionOperator(Operator::GetGlobal { global_index }) => {
-                GlobalInit::ImportRef(global_index as usize)
+                GlobalInit::GlobalRef(global_index as GlobalIndex)
             }
             ref s @ _ => return Err(SectionParsingError::WrongSectionContent(format!("{:?}", s))),
 

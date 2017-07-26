@@ -12,12 +12,14 @@ use std::ptr::write_unaligned;
 
 type RelocRef = u16;
 
+// Implementation of a relocation sink that just saves all the information for later
 struct StandaloneRelocSink {
     ebbs: HashMap<RelocRef, (Ebb, CodeOffset)>,
     funcs: HashMap<RelocRef, (FuncRef, CodeOffset)>,
     jts: HashMap<RelocRef, (JumpTable, CodeOffset)>,
 }
 
+// Contains all the metadata necessary to perform relocations
 struct FunctionMetaData {
     relocs: StandaloneRelocSink,
     imports: ImportMappings,
@@ -98,6 +100,7 @@ pub fn execute_module(trans_result: &TranslationResult, isa: &str) -> Result<(),
                                 reloc_address as u32);
             }
         }
+        // TODO: deal with Ebb and jumptable relocations
     }
     match trans_result.start_index {
         None => Err(String::from("No start function defined, aborting execution")),
@@ -105,6 +108,7 @@ pub fn execute_module(trans_result: &TranslationResult, isa: &str) -> Result<(),
     }
 }
 
+// Jumps to the code region of memory and execute the start function of the module.
 fn execute(code_buf: &mut Vec<u8>) -> Result<(), String> {
     unsafe {
         match protect(code_buf.as_ptr(),
@@ -116,6 +120,13 @@ fn execute(code_buf: &mut Vec<u8>) -> Result<(), String> {
                                    err.description()))
             }
         };
+        // Rather than writing inline assembly to jump to the code region, we use the fact that
+        // the Rust ABI for calling a function with no arguments and no return matches the one of
+        // the generated code.Thanks to this, we can transmute the code region into a first-class
+        // Rust function and call it.
+        // TODO: the Rust callee-saced registers will be overwritten by the executed code, inline
+        // assembly spilling these registers to the stack and restoring them after the call is
+        // needed.
         let start_func = transmute::<_, fn()>(code_buf.as_ptr());
         start_func();
         Ok(())

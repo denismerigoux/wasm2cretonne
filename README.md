@@ -46,7 +46,14 @@ println!("Memory after execution: {:?}", runtime.inspect_memory(0,0,4));
 
 ## CLI tool
 
-The binary created by the root crate of this repo is an utility to parse, translate, compile and execute wasm binaries using Cretonne. Use `--help` to lookup its options.
+The binary created by the root crate of this repo is an utility to parse, translate, compile and execute wasm binaries using Cretonne. Usage:
+
+```
+wasm2cretonne-util file <files to translate>
+    -v, --verbose       displays the module and translated functions
+    -e, --execute       enable the standalone runtime and executes the start function of the module
+    -m, --memory        interactive memory inspector after execution
+```
 
 The tool only reads binary WebAssembly so you'll have to manually encode your source files with the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabct).
 

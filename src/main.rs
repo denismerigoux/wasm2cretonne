@@ -1,3 +1,10 @@
+//! CLI tool to use the functions provided by crates [wasm2cretonne](../wasm2cretonne/index.html)
+//! and [wasmstandalone](../wasmstandalone/index.html).
+//!
+//! Reads Wasm binary files (one Wasm module per file), translates the functions' code to Cretonne
+//! IL. Can also executes the `start` function of the module by laying out the memories, globals
+//! and tables, then emitting the translated code with hardcoded addresses to memory.
+
 extern crate wasm2cretonne;
 extern crate wasmstandalone;
 extern crate wasmparser;
@@ -222,6 +229,7 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
     Ok(())
 }
 
+// Prints out a Wasm module, and for each function the corresponding translation in Cretonne IL.
 fn pretty_print_translation(filename: &String,
                             data: &Vec<u8>,
                             translation: &TranslationResult,

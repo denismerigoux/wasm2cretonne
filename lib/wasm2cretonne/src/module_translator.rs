@@ -1,3 +1,5 @@
+//! Translation skeletton that traverses the whole WebAssembly module and call helper functions
+//! to deal with each part of it.
 use wasmparser::{ParserState, SectionCode, ParserInput, Parser, WasmDecoder};
 use sections_translator::{SectionParsingError, parse_function_signatures, parse_import_section,
                           parse_function_section, parse_export_section, parse_memory_section,
@@ -10,11 +12,16 @@ use cton_frontend::ILBuilder;
 use std::collections::HashMap;
 use runtime::WasmRuntime;
 
+/// Output of the [`translate_module`](fn.translate_module.html) function. Contains the translated
+/// functions and when present the index of the function defined as `start` of the module.
 pub struct TranslationResult {
     pub functions: Vec<FunctionTranslation>,
     pub start_index: Option<FunctionIndex>,
 }
 
+/// A function in a WebAssembly module can be either imported, or defined inside it. If it is
+/// defined inside it, then the translation in Cretonne IL is available as well as the mappings
+/// between Cretonne imports and indexes in the function index space.
 #[derive(Clone)]
 pub enum FunctionTranslation {
     Code {
@@ -25,9 +32,12 @@ pub enum FunctionTranslation {
 }
 
 #[derive(Clone,Debug)]
+/// Mappings describing the relations between imports of the Cretonne IL functions and the
+/// functions in the WebAssembly module.
 pub struct ImportMappings {
-    /// Mappings index in function index space -> index in function local imports
+    /// Find the index of a function in the WebAssembly module thanks to a `FuncRef`.
     pub functions: HashMap<FuncRef, FunctionIndex>,
+    /// Find the index of a signature in the WebAssembly module thanks to a `SigRef`.
     pub signatures: HashMap<SigRef, SignatureIndex>,
 }
 

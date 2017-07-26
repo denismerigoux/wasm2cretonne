@@ -1,5 +1,5 @@
-use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, MemoryIndex, RawByte, Address,
-                    Global, GlobalInit, Table, Memory, WasmRuntime};
+use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, MemoryIndex, RawByte,
+                    MemoryAddress, Global, GlobalInit, Table, Memory, WasmRuntime};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, FunctionName,
                    Signature, ArgumentType};
@@ -26,8 +26,8 @@ struct GlobalsData {
     info: Vec<GlobalInfo>,
 }
 
-struct TablesData {
-    addresses: Vec<Address>,
+struct TableData {
+    data: Vec<MemoryAddress>,
     elements: Vec<TableElement>,
     info: Table,
 }
@@ -39,9 +39,11 @@ struct MemoryData {
 
 const PAGE_SIZE: usize = 65536;
 
+/// Object containing the standalone runtime information. To be passed after creation as argument
+/// to [`wasm2cretonne::translatemodule`](../wasm2cretonne/fn.translate_module.html).
 pub struct StandaloneRuntime {
     globals: GlobalsData,
-    tables: Vec<TablesData>,
+    tables: Vec<TableData>,
     memories: Vec<MemoryData>,
     instantiated: bool,
     has_current_memory: Option<FuncRef>,
@@ -49,7 +51,7 @@ pub struct StandaloneRuntime {
 }
 
 impl StandaloneRuntime {
-    /// Allocates the runtime data structures
+    /// Allocates the runtime data structures.
     pub fn new() -> StandaloneRuntime {
         StandaloneRuntime {
             globals: GlobalsData {
@@ -65,6 +67,10 @@ impl StandaloneRuntime {
     }
 }
 
+/// This trait is useful for
+/// [`wasm2cretonne::translatemodule`](../wasm2cretonne/fn.translate_module.html) because it
+/// tells how to translate runtime-dependent wasm instructions. These functions should not be
+/// called by the user.
 impl WasmRuntime for StandaloneRuntime {
     fn translate_get_global(&self,
                             builder: &mut FunctionBuilder<Local>,
@@ -164,7 +170,7 @@ impl WasmRuntime for StandaloneRuntime {
                      &[]);
         builder.seal_block(trap_ebb);
         let offset_val = builder.ins().imul_imm(index_val, 4);
-        let base_table_addr: i64 = unsafe { transmute(self.tables[0].addresses.as_ptr()) };
+        let base_table_addr: i64 = unsafe { transmute(self.tables[0].data.as_ptr()) };
         let table_addr_val = builder.ins().iconst(I32, base_table_addr);
         let table_entry_addr_val = builder.ins().iadd(table_addr_val, offset_val);
         let memflags = MemFlags::new();
@@ -232,7 +238,7 @@ impl WasmRuntime for StandaloneRuntime {
                     // We don't initialize, this is inter-module linking
                     // TODO: support inter-module imports
                 }
-                GlobalInit::ImportRef(index) => {
+                GlobalInit::GlobalRef(index) => {
                     let ref_offset = self.globals.info[index].offset;
                     let size = globalinfo.global.ty.bytes();
                     unsafe {
@@ -267,9 +273,9 @@ impl WasmRuntime for StandaloneRuntime {
         let mut addresses_vec = Vec::with_capacity(table.size as usize);
         addresses_vec.resize(table.size as usize, 0);
         self.tables
-            .push(TablesData {
+            .push(TableData {
                       info: table,
-                      addresses: addresses_vec,
+                      data: addresses_vec,
                       elements: elements_vec,
                   });
     }
@@ -305,7 +311,9 @@ impl WasmRuntime for StandaloneRuntime {
     }
 }
 
+/// Convenience functions for the user to be called after execution for debug purposes.
 impl StandaloneRuntime {
+    /// Returns a slice of the contents of allocated linear memory.
     pub fn inspect_memory(&self, memory_index: usize, address: usize, len: usize) -> &[u8] {
         self.memories
             .get(memory_index)
@@ -317,6 +325,7 @@ impl StandaloneRuntime {
             .split_at(len)
             .0
     }
+    /// Shows the value of a global variable.
     pub fn inspect_global(&self, global_index: usize) -> &[u8] {
         let (offset, len) = (self.globals.info[global_index].offset,
                              self.globals.info[global_index].global.ty.bytes() as usize);

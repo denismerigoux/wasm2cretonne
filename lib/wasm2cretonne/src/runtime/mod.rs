@@ -1,6 +1,5 @@
-mod runtime;
+mod spec;
 mod dummy;
 
-pub use runtime::runtime::WasmRuntime;
+pub use runtime::spec::WasmRuntime;
 pub use runtime::dummy::DummyRuntime;
-pub use runtime::runtime::{Global, GlobalInit, Table, TableElementType, Memory};
