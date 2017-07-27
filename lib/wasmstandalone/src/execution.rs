@@ -1,7 +1,7 @@
 use cretonne::Context;
 use cretonne::settings;
 use cretonne::isa;
-use cretonne::ir::{Ebb, FuncRef, JumpTable};
+use cretonne::ir::{Ebb, FuncRef, JumpTable, Function};
 use cretonne::binemit::{RelocSink, Reloc, CodeOffset};
 use wasm2cretonne::{TranslationResult, FunctionTranslation, ImportMappings};
 use std::mem::transmute;
@@ -20,9 +20,13 @@ struct StandaloneRelocSink {
 }
 
 // Contains all the metadata necessary to perform relocations
-struct FunctionMetaData {
-    relocs: StandaloneRelocSink,
-    imports: ImportMappings,
+enum FunctionMetaData {
+    Import(),
+    Local {
+        relocs: StandaloneRelocSink,
+        imports: ImportMappings,
+        il_func: Function,
+    },
 }
 
 impl RelocSink for StandaloneRelocSink {
@@ -60,11 +64,18 @@ pub fn execute_module(trans_result: &TranslationResult, isa: &str) -> Result<(),
     };
     let mut functions_metatada = Vec::new();
     let mut functions_code = Vec::new();
-    for function in trans_result.functions.iter() {
+    for (function_index, function) in trans_result.functions.iter().enumerate() {
         let mut context = Context::new();
         let (il, imports) = match function {
             &FunctionTranslation::Import() => {
-                return Err(String::from("start function should not be an import"))
+                if trans_result.start_index.is_some() &&
+                   trans_result.start_index.unwrap() == function_index {
+                    return Err(String::from("start function should not be an import"));
+                } else {
+                    functions_code.push(Vec::new());
+                    functions_metatada.push(FunctionMetaData::Import());
+                    continue;
+                }
             }
             &FunctionTranslation::Code {
                 ref il,
@@ -81,27 +92,15 @@ pub fn execute_module(trans_result: &TranslationResult, isa: &str) -> Result<(),
         code_buf.resize(code_size, 0);
         let mut relocsink = StandaloneRelocSink::new();
         context.emit_to_memory(code_buf.as_mut_ptr(), &mut relocsink, &*isa);
-        functions_metatada.push(FunctionMetaData {
+        functions_metatada.push(FunctionMetaData::Local {
                                     relocs: relocsink,
                                     imports: imports,
+                                    il_func: context.func,
                                 });
         functions_code.push(code_buf);
     }
+    relocate(&functions_metatada, &mut functions_code);
     // After having emmitted the code to memory, we deal with relocations
-    for (func_index, function_in_memory) in functions_metatada.iter().enumerate() {
-        for (_, &(func_ref, offset)) in function_in_memory.relocs.funcs.iter() {
-            let reloc_func_index = function_in_memory.imports.functions[&func_ref];
-            let reloc_address = functions_code[reloc_func_index].as_ptr();
-            unsafe {
-                write_unaligned(functions_code[func_index]
-                                    .as_mut_ptr()
-                                    .offset(offset as isize) as
-                                *mut u32,
-                                reloc_address as u32);
-            }
-        }
-        // TODO: deal with Ebb and jumptable relocations
-    }
     match trans_result.start_index {
         None => Err(String::from("No start function defined, aborting execution")),
         Some(index) => execute(&mut functions_code[index]),
@@ -130,5 +129,47 @@ fn execute(code_buf: &mut Vec<u8>) -> Result<(), String> {
         let start_func = transmute::<_, fn()>(code_buf.as_ptr());
         start_func();
         Ok(())
+    }
+}
+
+/// Performs the relocations inside the function bytecode, provided the necessary metadata
+fn relocate(functions_metatada: &Vec<FunctionMetaData>, functions_code: &mut Vec<Vec<u8>>) {
+    // The relocations are relative to the relocation's address plus four bytes
+    for (func_index, function_in_memory) in functions_metatada.iter().enumerate() {
+        match function_in_memory {
+            &FunctionMetaData::Import() => continue,
+            &FunctionMetaData::Local {
+                ref relocs,
+                ref imports,
+                ref il_func,
+            } => {
+                for (_, &(func_ref, offset)) in relocs.funcs.iter() {
+                    let target_func_index = imports.functions[&func_ref];
+                    let target_func_address: *const u8 = functions_code[target_func_index].as_ptr();
+                    unsafe {
+                        let reloc_address = functions_code[func_index]
+                            .as_mut_ptr()
+                            .offset(offset as isize + 4);
+                        let reloc_delta_i32: i32 =
+                            target_func_address.offset(reloc_address as isize) as i32;
+                        write_unaligned(reloc_address as *mut i32, reloc_delta_i32);
+                    }
+                }
+                for (_, &(ebb, offset)) in relocs.ebbs.iter() {
+                    unsafe {
+                        let reloc_address = functions_code[func_index]
+                            .as_mut_ptr()
+                            .offset(offset as isize + 4);
+                        let target_ebb_address = functions_code[func_index]
+                            .as_ptr()
+                            .offset(il_func.offsets[ebb] as isize);
+                        let reloc_delta_i32: i32 =
+                            target_ebb_address.offset(reloc_address as isize) as i32;
+                        write_unaligned(reloc_address as *mut i32, reloc_delta_i32);
+                    }
+                }
+                // TODO: deal with jumptable relocations
+            }
+        }
     }
 }
