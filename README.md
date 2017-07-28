@@ -55,7 +55,7 @@ wasm2cretonne-util file <files to translate>
     -m, --memory        interactive memory inspector after execution
 ```
 
-The tool only reads binary WebAssembly so you'll have to manually encode your source files with the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabct).
+The tool only reads binary WebAssembly so you'll have to manually encode your source files with the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabct). For now, only the 64 bits Intel architecture is supported for execution.  
 
 ### Example
 

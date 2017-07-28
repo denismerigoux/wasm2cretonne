@@ -162,7 +162,7 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
         terminal.fg(term::color::YELLOW).unwrap();
         println!("Compiling and executing module...");
         terminal.reset().unwrap();
-        match execute_module(&translation, "intel") {
+        match execute_module(&translation) {
             Ok(()) => {
                 terminal.fg(term::color::GREEN).unwrap();
                 println!("ok");
