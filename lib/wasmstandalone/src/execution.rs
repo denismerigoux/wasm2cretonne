@@ -167,26 +167,29 @@ fn relocate(functions_metatada: &Vec<FunctionMetaData>, functions_code: &mut Vec
             } => {
                 for (_, &(func_ref, offset)) in relocs.funcs.iter() {
                     let target_func_index = imports.functions[&func_ref];
-                    let target_func_address: *const u8 = functions_code[target_func_index].as_ptr();
+                    let target_func_address: isize = functions_code[target_func_index].as_ptr() as
+                                                     isize;
                     unsafe {
-                        let reloc_address = functions_code[func_index]
+                        let reloc_address: isize = functions_code[func_index]
                             .as_mut_ptr()
-                            .offset(offset as isize + 4);
-                        let reloc_delta_i32: i32 =
-                            target_func_address.offset(reloc_address as isize) as i32;
+                            .offset(offset as isize + 4) as
+                                                   isize;
+                        let reloc_delta_i32: i32 = (target_func_address - reloc_address) as i32;
                         write_unaligned(reloc_address as *mut i32, reloc_delta_i32);
                     }
                 }
                 for (_, &(ebb, offset)) in relocs.ebbs.iter() {
                     unsafe {
-                        let reloc_address = functions_code[func_index]
+                        let reloc_address: isize = functions_code[func_index]
                             .as_mut_ptr()
-                            .offset(offset as isize + 4);
-                        let target_ebb_address = functions_code[func_index]
-                            .as_ptr()
-                            .offset(il_func.offsets[ebb] as isize);
-                        let reloc_delta_i32: i32 =
-                            target_ebb_address.offset(reloc_address as isize) as i32;
+                            .offset(offset as isize + 4) as
+                                                   isize;
+                        let target_ebb_address: isize =
+                            functions_code[func_index]
+                                .as_ptr()
+                                .offset(il_func.offsets[ebb] as isize) as
+                            isize;
+                        let reloc_delta_i32: i32 = (target_ebb_address - reloc_address) as i32;
                         write_unaligned(reloc_address as *mut i32, reloc_delta_i32);
                     }
                 }
