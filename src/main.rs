@@ -15,6 +15,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate term;
+extern crate tempdir;
 
 use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime,
                     WasmRuntime};
@@ -30,6 +31,8 @@ use std::io::prelude::*;
 use docopt::Docopt;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+use tempdir::TempDir;
 
 const USAGE: &str = "
 Wasm to Cretonne IL translation utility.
@@ -116,11 +119,63 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
     print!("Translating: ");
     terminal.reset().unwrap();
     print!("\"{}\"", name);
-    let data = match read_wasm_file(path) {
-        Ok(data) => data,
-        Err(err) => {
-            println!("Error: {}", err);
-            return Err(String::from(err.description()));
+    let data = match path.extension() {
+        None => {
+            terminal.fg(term::color::RED).unwrap();
+            println!(" error");
+            terminal.reset().unwrap();
+            return Err(String::from("the file extension is not wasm or wast"));
+        }
+        Some(ext) => {
+            match ext.to_str() {
+                Some("wasm") => {
+                    match read_wasm_file(path.clone()) {
+                        Ok(data) => data,
+                        Err(err) => {
+                            terminal.fg(term::color::RED).unwrap();
+                            println!(" error");
+                            terminal.reset().unwrap();
+                            return Err(String::from(err.description()));
+                        }
+                    }
+                }
+                Some("wast") => {
+                    let tmp_dir = TempDir::new("wasm2cretonne").unwrap();
+                    let file_path = tmp_dir.path().join("module.wasm");
+                    File::create(file_path.clone()).unwrap();
+                    Command::new("wast2wasm")
+                        .arg(path.clone())
+                        .arg("-o")
+                        .arg(file_path.to_str().unwrap())
+                        .output()
+                        .or_else(|e| {
+                            terminal.fg(term::color::RED).unwrap();
+                            println!(" error");
+                            terminal.reset().unwrap();
+                            if let io::ErrorKind::NotFound = e.kind() {
+                                return Err(String::from("wast2wasm not found"));
+                            } else {
+                                return Err(String::from(e.description()));
+                            }
+                        })
+                        .unwrap();
+                    match read_wasm_file(file_path) {
+                        Ok(data) => data,
+                        Err(err) => {
+                            terminal.fg(term::color::RED).unwrap();
+                            println!(" error");
+                            terminal.reset().unwrap();
+                            return Err(String::from(err.description()));
+                        }
+                    }
+                }
+                None | Some(&_) => {
+                    terminal.fg(term::color::RED).unwrap();
+                    println!(" error");
+                    terminal.reset().unwrap();
+                    return Err(String::from("the file extension is not wasm or wast"));
+                }
+            }
         }
     };
     let mut dummy_runtime = DummyRuntime::new();
@@ -178,53 +233,42 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
         if args.flag_memory {
             let mut input = String::new();
             terminal.fg(term::color::YELLOW).unwrap();
-            print!("Inspect memory [y/n]: ");
+            println!("Inspecting memory");
+            terminal.fg(term::color::MAGENTA).unwrap();
+            println!("Type 'quit' to exit.");
             terminal.reset().unwrap();
-            let _ = stdout().flush();
-            match io::stdin().read_line(&mut input) {
-                Ok(_) => {
-                    input.pop();
-                    if input == "y" || input == "Y" {
-                        terminal.fg(term::color::MAGENTA).unwrap();
-                        println!("Type 'quit' to exit.");
-                        terminal.reset().unwrap();
-                        loop {
-                            input.clear();
-                            terminal.fg(term::color::YELLOW).unwrap();
-                            print!("Memory index, offset, length (e.g. 0,0,4): ");
-                            terminal.reset().unwrap();
-                            let _ = stdout().flush();
-                            match io::stdin().read_line(&mut input) {
-                                Ok(_) => {
-                                    input.pop();
-                                    if input == "quit" {
-                                        break;
-                                    }
-                                    let split: Vec<&str> = input.split(",").collect();
-                                    if split.len() != 3 {
-                                        break;
-                                    }
-                                    let memory = standalone_runtime
-                                        .inspect_memory(str::parse(split[0]).unwrap(),
-                                                        str::parse(split[1]).unwrap(),
-                                                        str::parse(split[2]).unwrap());
-                                    let mut s = memory
-                                        .iter()
-                                        .fold(String::from("#"), |mut acc, byte| {
-                                            acc.push_str(format!("{:02x}_", byte).as_str());
-                                            acc
-                                        });
-                                    s.pop();
-                                    println!("{}", s);
-                                }
-                                Err(error) => return Err(String::from(error.description())),
-                            }
+            loop {
+                input.clear();
+                terminal.fg(term::color::YELLOW).unwrap();
+                print!("Memory index, offset, length (e.g. 0,0,4): ");
+                terminal.reset().unwrap();
+                let _ = stdout().flush();
+                match io::stdin().read_line(&mut input) {
+                    Ok(_) => {
+                        input.pop();
+                        if input == "quit" {
+                            break;
                         }
+                        let split: Vec<&str> = input.split(",").collect();
+                        if split.len() != 3 {
+                            break;
+                        }
+                        let memory = standalone_runtime
+                            .inspect_memory(str::parse(split[0]).unwrap(),
+                                            str::parse(split[1]).unwrap(),
+                                            str::parse(split[2]).unwrap());
+                        let mut s = memory
+                            .iter()
+                            .fold(String::from("#"), |mut acc, byte| {
+                                acc.push_str(format!("{:02x}_", byte).as_str());
+                                acc
+                            });
+                        s.pop();
+                        println!("{}", s);
                     }
+                    Err(error) => return Err(String::from(error.description())),
                 }
-                Err(error) => return Err(String::from(error.description())),
             }
-
         }
     }
     Ok(())
