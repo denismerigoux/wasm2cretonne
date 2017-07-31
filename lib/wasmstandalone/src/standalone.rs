@@ -315,15 +315,11 @@ impl WasmRuntime for StandaloneRuntime {
 impl StandaloneRuntime {
     /// Returns a slice of the contents of allocated linear memory.
     pub fn inspect_memory(&self, memory_index: usize, address: usize, len: usize) -> &[u8] {
-        self.memories
-            .get(memory_index)
-            .expect(format!("no memory for index {}", memory_index).as_str())
-            .data
-            .as_slice()
-            .split_at(address)
-            .1
-            .split_at(len)
-            .0
+        &self.memories
+             .get(memory_index)
+             .expect(format!("no memory for index {}", memory_index).as_str())
+             .data
+             [address..address + len]
     }
     /// Shows the value of a global variable.
     pub fn inspect_global(&self, global_index: usize) -> &[u8] {

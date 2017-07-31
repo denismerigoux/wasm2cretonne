@@ -208,12 +208,13 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                                         .inspect_memory(str::parse(split[0]).unwrap(),
                                                         str::parse(split[1]).unwrap(),
                                                         str::parse(split[2]).unwrap());
-                                    let s = memory
+                                    let mut s = memory
                                         .iter()
                                         .fold(String::from("#"), |mut acc, byte| {
-                                            acc.push_str(format!("{:02x}", byte).as_str());
+                                            acc.push_str(format!("{:02x}_", byte).as_str());
                                             acc
                                         });
+                                    s.pop();
                                     println!("{}", s);
                                 }
                                 Err(error) => return Err(String::from(error.description())),
