@@ -170,7 +170,7 @@ pub fn translate_function_body(parser: &mut Parser,
     let mut func_imports = FunctionImports::new();
     let mut stack: Vec<Value> = Vec::new();
     let mut control_stack: Vec<ControlStackFrame> = Vec::new();
-    /// We introduce a arbitrary scope for the FunctionBuilder object
+    // We introduce a arbitrary scope for the FunctionBuilder object
     {
         let mut builder = FunctionBuilder::new(&mut func, il_builder);
         let first_ebb = builder.create_ebb();
