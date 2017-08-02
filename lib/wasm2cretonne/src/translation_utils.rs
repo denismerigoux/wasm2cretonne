@@ -1,7 +1,6 @@
 ///! Helper functions and structures for the translation.
 use wasmparser;
 use cretonne;
-use std::mem;
 use std::u32;
 use code_translator;
 use module_translator;
@@ -103,12 +102,12 @@ pub fn type_to_type(ty: &wasmparser::Type) -> Result<cretonne::ir::Type, ()> {
 
 /// Turns a `wasmparser` `f32` into a `Cretonne` one.
 pub fn f32_translation(x: wasmparser::Ieee32) -> cretonne::ir::immediates::Ieee32 {
-    cretonne::ir::immediates::Ieee32::new(unsafe { mem::transmute(x.bits()) })
+    cretonne::ir::immediates::Ieee32::with_bits(x.bits())
 }
 
 /// Turns a `wasmparser` `f64` into a `Cretonne` one.
 pub fn f64_translation(x: wasmparser::Ieee64) -> cretonne::ir::immediates::Ieee64 {
-    cretonne::ir::immediates::Ieee64::new(unsafe { mem::transmute(x.bits()) })
+    cretonne::ir::immediates::Ieee64::with_bits(x.bits())
 }
 
 /// Translate a `wasmparser` type into its `Cretonne` equivalent, when possible

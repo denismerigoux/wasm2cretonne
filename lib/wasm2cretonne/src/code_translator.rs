@@ -189,8 +189,8 @@ pub fn translate_function_body(parser: &mut Parser,
             let val = match ty {
                 I32 => builder.ins().iconst(ty, 0),
                 I64 => builder.ins().iconst(ty, 0),
-                F32 => builder.ins().f32const(Ieee32::new(0.0)),
-                F64 => builder.ins().f64const(Ieee64::new(0.0)),
+                F32 => builder.ins().f32const(Ieee32::with_bits(0)),
+                F64 => builder.ins().f64const(Ieee64::with_bits(0)),
                 _ => panic!("should not happen"),
             };
             for _ in 0..loc_count {
