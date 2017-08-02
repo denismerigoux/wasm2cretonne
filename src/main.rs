@@ -41,11 +41,11 @@ The translation is dependent on the runtime chosen.
 The default is a dummy runtime that produces placeholder values.
 
 Usage:
-    cton-util [-v] file <file>...
-    cton-util -e [-mv] file <file>...
-    cton-util [-v] all
-    cton-util -e [-mv] all
-    cton-util --help | --version
+    wasm2cretonne-util [-v] file <file>...
+    wasm2cretonne-util -e [-mv] file <file>...
+    wasm2cretonne-util [-v] all
+    wasm2cretonne-util -e [-mv] all
+    wasm2cretonne-util --help | --version
 
 Options:
     -v, --verbose       displays the module and translated functions
