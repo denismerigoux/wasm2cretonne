@@ -29,8 +29,8 @@ impl WasmRuntime for DummyRuntime {
         match glob.ty {
             I32 => builder.ins().iconst(glob.ty, -1),
             I64 => builder.ins().iconst(glob.ty, -1),
-            F32 => builder.ins().f32const(Ieee32::new(-1.0)),
-            F64 => builder.ins().f64const(Ieee64::new(-1.0)),
+            F32 => builder.ins().f32const(Ieee32::with_bits(0xbf800000)), // -1.0
+            F64 => builder.ins().f64const(Ieee64::with_bits(0xbff0000000000000)), // -1.0
             _ => panic!("should not happen"),
         }
     }
