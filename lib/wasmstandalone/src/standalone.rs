@@ -2,7 +2,7 @@ use wasm2cretonne::{Local, FunctionIndex, GlobalIndex, TableIndex, MemoryIndex, 
                     MemoryAddress, Global, GlobalInit, Table, Memory, WasmRuntime};
 use cton_frontend::FunctionBuilder;
 use cretonne::ir::{MemFlags, Value, InstBuilder, SigRef, FuncRef, ExtFuncData, FunctionName,
-                   Signature, ArgumentType};
+                   Signature, ArgumentType, CallConv};
 use cretonne::ir::types::*;
 use cretonne::ir::condcodes::IntCC;
 use cretonne::ir::immediates::Offset32;
@@ -113,6 +113,7 @@ impl WasmRuntime for StandaloneRuntime {
             None => {
                 let sig_ref =
                     builder.import_signature(Signature {
+                                                 call_conv: CallConv::Native,
                                                  argument_bytes: None,
                                                  argument_types: vec![ArgumentType::new(I32)],
                                                  return_types: vec![ArgumentType::new(I32)],
@@ -133,6 +134,7 @@ impl WasmRuntime for StandaloneRuntime {
             Some(cur_mem_func) => cur_mem_func,
             None => {
                 let sig_ref = builder.import_signature(Signature {
+                                                           call_conv: CallConv::Native,
                                                            argument_bytes: None,
                                                            argument_types: Vec::new(),
                                                            return_types:

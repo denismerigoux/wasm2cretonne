@@ -10,7 +10,7 @@
 use translation_utils::{type_to_type, Import, TableIndex, FunctionIndex, GlobalIndex,
                         SignatureIndex, MemoryIndex, Global, GlobalInit, Table, TableElementType,
                         Memory};
-use cretonne::ir::{Signature, ArgumentType};
+use cretonne::ir::{Signature, ArgumentType, CallConv};
 use cretonne;
 use wasmparser::{Parser, ParserState, FuncType, ImportSectionEntryType, ExternalKind, WasmDecoder,
                  MemoryType, Operator};
@@ -35,7 +35,7 @@ pub fn parse_function_signatures(parser: &mut Parser)
                                               ref params,
                                               ref returns,
                                           }) => {
-                let mut sig = Signature::new();
+                let mut sig = Signature::new(CallConv::Native);
                 sig.argument_types
                     .extend(params
                                 .iter()

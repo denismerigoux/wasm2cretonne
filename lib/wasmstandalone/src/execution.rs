@@ -67,10 +67,10 @@ pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
         .set("is_64bit", "1")
         .expect("Missing 64bits setting");
     let isa = match isa::lookup("intel") {
-        None => {
+        Err(_) => {
             panic!() // The target ISA is not available.
         }
-        Some(mut isa_builder) => {
+        Ok(mut isa_builder) => {
             isa_builder
                 .enable("haswell")
                 .expect("Missing haswell setting");
