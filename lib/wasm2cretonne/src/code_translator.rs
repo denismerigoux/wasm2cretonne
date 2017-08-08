@@ -116,7 +116,7 @@ struct TranslationState {
     last_inst_return: bool,
     phantom_unreachable_stack_depth: usize,
     real_unreachable_stack_depth: usize,
-    br_table_reachable_ebbs: HashSet<Ebb>,
+    reachable_ebbs: HashSet<Ebb>,
 }
 
 /// Holds mappings between the function and signatures indexes in the Wasm module and their
@@ -203,7 +203,7 @@ pub fn translate_function_body(parser: &mut Parser,
             last_inst_return: false,
             phantom_unreachable_stack_depth: 0,
             real_unreachable_stack_depth: 0,
-            br_table_reachable_ebbs: HashSet::new(),
+            reachable_ebbs: HashSet::new(),
         };
         // We initialize the control stack with the implicit function block
         let end_ebb = builder.create_ebb();
@@ -470,6 +470,7 @@ fn translate_operator(op: &Operator,
                 .ins()
                 .jump(frame.br_destination(), jump_args.as_slice());
             // We signal that all the code that follows until the next End is unreachable
+            state.reachable_ebbs.insert(frame.br_destination());
             state.real_unreachable_stack_depth = 1 + relative_depth as usize;
         }
         Operator::BrIf { relative_depth } => {
@@ -482,6 +483,7 @@ fn translate_operator(op: &Operator,
                 .brnz(val, frame.br_destination(), jump_args.as_slice());
             // The values returned by the branch are still available for the reachable
             // code that comes after it
+            state.reachable_ebbs.insert(frame.br_destination());
             stack.extend(jump_args);
         }
         Operator::BrTable { ref table } => {
@@ -504,7 +506,7 @@ fn translate_operator(op: &Operator,
                         let ebb = control_stack[control_stack.len() - 1 - (*depth as usize)]
                             .br_destination();
                         builder.insert_jump_table_entry(jt, index, ebb);
-                        state.br_table_reachable_ebbs.insert(ebb);
+                        state.reachable_ebbs.insert(ebb);
                     }
                     builder.ins().br_table(val, jt);
                 }
@@ -512,6 +514,7 @@ fn translate_operator(op: &Operator,
                     .br_destination();
                 builder.ins().jump(ebb, &[]);
                 state.real_unreachable_stack_depth = 1 + min_depth as usize;
+                state.reachable_ebbs.insert(ebb);
             } else {
                 // Here we have jump arguments, but Cretonne's br_table doesn't support them
                 // We then proceed to split the edges going out of the br_table
@@ -546,7 +549,7 @@ fn translate_operator(op: &Operator,
                         (depth as usize)]
                                 .br_destination();
                         builder.ins().jump(real_dest_ebb, jump_args.as_slice());
-                        state.br_table_reachable_ebbs.insert(dest_ebb);
+                        state.reachable_ebbs.insert(dest_ebb);
                     }
                     state.real_unreachable_stack_depth = 1 + min_depth as usize;
                 } else {
@@ -1216,9 +1219,7 @@ fn translate_unreachable_operator(op: &Operator,
                     }
                     _ => {}
                 }
-                if state
-                       .br_table_reachable_ebbs
-                       .contains(&frame.following_code()) {
+                if state.reachable_ebbs.contains(&frame.following_code()) {
                     state.real_unreachable_stack_depth = 1;
                 }
                 // Now we have to split off the stack the values not used

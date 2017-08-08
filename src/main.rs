@@ -23,6 +23,10 @@ use wasmstandalone::{StandaloneRuntime, execute_module};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
 use wasmtext::Writer;
+use cretonne::ir;
+use cretonne::ir::entities::AnyEntity;
+use cretonne::isa::TargetIsa;
+use cretonne::verifier;
 use std::fs::File;
 use std::error::Error;
 use std::io;
@@ -41,14 +45,15 @@ The translation is dependent on the runtime chosen.
 The default is a dummy runtime that produces placeholder values.
 
 Usage:
-    wasm2cretonne-util [-v] file <file>...
-    wasm2cretonne-util -e [-mv] file <file>...
-    wasm2cretonne-util [-v] all
-    wasm2cretonne-util -e [-mv] all
+    wasm2cretonne-util [-vc] file <file>...
+    wasm2cretonne-util -e [-mvc] file <file>...
+    wasm2cretonne-util [-vc] all
+    wasm2cretonne-util -e [-mvc] all
     wasm2cretonne-util --help | --version
 
 Options:
     -v, --verbose       displays the module and translated functions
+    -c, --check         checks the corectness of the translated function
     -e, --execute       enable the standalone runtime and executes the start function of the module
     -m, --memory        interactive memory inspector after execution
     -h, --help          print this help message
@@ -62,6 +67,7 @@ struct Args {
     flag_verbose: bool,
     flag_execute: bool,
     flag_memory: bool,
+    flag_check: bool,
 }
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
@@ -93,7 +99,12 @@ fn main() {
             let name = String::from(path.as_os_str().to_string_lossy());
             match handle_module(&args, path, name) {
                 Ok(()) => files_ok +=1,
-                Err(message) => println!("{}", message),
+                Err(message) => {
+                    terminal.fg(term::color::RED).unwrap();
+                    println!(" error");
+                    terminal.reset().unwrap();
+                    println!("{}", message)
+                }
             };
         }
         terminal.fg(term::color::GREEN).unwrap();
@@ -108,7 +119,12 @@ fn main() {
         let name = String::from(path.as_os_str().to_string_lossy());
         match handle_module(&args, path.to_path_buf(), name) {
             Ok(()) => {}
-            Err(message) => println!("{}", message),
+            Err(message) => {
+                terminal.fg(term::color::RED).unwrap();
+                println!(" error");
+                terminal.reset().unwrap();
+                println!("{}", message)
+            }
         }
     }
 }
@@ -132,9 +148,6 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                     match read_wasm_file(path.clone()) {
                         Ok(data) => data,
                         Err(err) => {
-                            terminal.fg(term::color::RED).unwrap();
-                            println!(" error");
-                            terminal.reset().unwrap();
                             return Err(String::from(err.description()));
                         }
                     }
@@ -162,17 +175,11 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                     match read_wasm_file(file_path) {
                         Ok(data) => data,
                         Err(err) => {
-                            terminal.fg(term::color::RED).unwrap();
-                            println!(" error");
-                            terminal.reset().unwrap();
                             return Err(String::from(err.description()));
                         }
                     }
                 }
                 None | Some(&_) => {
-                    terminal.fg(term::color::RED).unwrap();
-                    println!(" error");
-                    terminal.reset().unwrap();
                     return Err(String::from("the file extension is not wasm or wast"));
                 }
             }
@@ -189,13 +196,22 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
         match translate_module(&data, runtime) {
             Ok(x) => x,
             Err(string) => {
-                terminal.fg(term::color::RED).unwrap();
-                println!(" error");
-                terminal.reset().unwrap();
                 return Err(string);
             }
         }
     };
+    if args.flag_check {
+        for func in translation.functions.iter() {
+            let il = match func {
+                &FunctionTranslation::Import() => continue,
+                &FunctionTranslation::Code { ref il, .. } => il,
+            };
+            match verifier::verify_function(il, None) {
+                Ok(()) => (),
+                Err(err) => return Err(pretty_verifier_error(il, None, err)),
+            }
+        }
+    }
     if args.flag_verbose {
         println!();
         let mut writer1 = stdout();
@@ -224,9 +240,6 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                 terminal.reset().unwrap();
             }
             Err(s) => {
-                terminal.fg(term::color::RED).unwrap();
-                println!("error");
-                terminal.reset().unwrap();
                 return Err(s);
             }
         };
@@ -360,4 +373,22 @@ fn pretty_print_translation(filename: &String,
             s @ _ => parser_writer.write(&s)?,
         }
     }
+}
+
+/// Pretty-print a verifier error.
+pub fn pretty_verifier_error(func: &ir::Function,
+                             isa: Option<&TargetIsa>,
+                             err: verifier::Error)
+                             -> String {
+    let msg = err.to_string();
+    let str1 = match err.location {
+        AnyEntity::Inst(inst) => {
+            format!("{}\n{}: {}\n\n",
+                    msg,
+                    inst,
+                    func.dfg.display_inst(inst, isa))
+        }
+        _ => String::from("\n"),
+    };
+    format!("{}{}", str1, func.display(isa))
 }
