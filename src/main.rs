@@ -19,10 +19,15 @@ extern crate tempdir;
 
 use wasm2cretonne::{translate_module, TranslationResult, FunctionTranslation, DummyRuntime,
                     WasmRuntime};
-use wasmstandalone::{StandaloneRuntime, execute_module};
+use wasmstandalone::{StandaloneRuntime, compile_module, execute};
 use std::path::PathBuf;
 use wasmparser::{Parser, ParserState, WasmDecoder, SectionCode};
 use wasmtext::Writer;
+use cretonne::loop_analysis::LoopAnalysis;
+use cretonne::flowgraph::ControlFlowGraph;
+use cretonne::dominator_tree::DominatorTree;
+use cretonne::Context;
+use cretonne::result::CtonError;
 use cretonne::ir;
 use cretonne::ir::entities::AnyEntity;
 use cretonne::isa::TargetIsa;
@@ -33,10 +38,25 @@ use std::io;
 use std::io::{BufReader, stdout};
 use std::io::prelude::*;
 use docopt::Docopt;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 use tempdir::TempDir;
+
+macro_rules! vprintln {
+    ($x: expr, $($tts:tt)*) => {
+        if $x {
+            println!($($tts)*);
+        }
+    }
+}
+
+macro_rules! vprint {
+    ($x: expr, $($tts:tt)*) => {
+        if $x {
+            print!($($tts)*);
+        }
+    }
+}
 
 const USAGE: &str = "
 Wasm to Cretonne IL translation utility.
@@ -45,15 +65,15 @@ The translation is dependent on the runtime chosen.
 The default is a dummy runtime that produces placeholder values.
 
 Usage:
-    wasm2cretonne-util [-vc] file <file>...
-    wasm2cretonne-util -e [-mvc] file <file>...
-    wasm2cretonne-util [-vc] all
-    wasm2cretonne-util -e [-mvc] all
+    wasm2cretonne-util [-vcop] <file>...
+    wasm2cretonne-util -e [-mvcop] <file>...
     wasm2cretonne-util --help | --version
 
 Options:
-    -v, --verbose       displays the module and translated functions
-    -c, --check         checks the corectness of the translated function
+    -v, --verbose       displays info on the different steps
+    -p, --print         displays the module and translated functions
+    -c, --check         checks the corectness of the translated functions
+    -o, --optimize      runs optimization passes on the translated functions
     -e, --execute       enable the standalone runtime and executes the start function of the module
     -m, --memory        interactive memory inspector after execution
     -h, --help          print this help message
@@ -62,12 +82,13 @@ Options:
 
 #[derive(Deserialize, Debug, Clone)]
 struct Args {
-    cmd_all: bool,
     arg_file: Vec<String>,
     flag_verbose: bool,
     flag_execute: bool,
     flag_memory: bool,
     flag_check: bool,
+    flag_optimize: bool,
+    flag_print: bool,
 }
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
@@ -84,36 +105,6 @@ fn main() {
         .and_then(|d| d.help(true).version(Some(format!("0.0.0"))).deserialize())
         .unwrap_or_else(|e| e.exit());
     let mut terminal = term::stdout().unwrap();
-
-    if args.cmd_all {
-        let mut paths: Vec<_> = fs::read_dir("testsuite")
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        let total_files = paths.len();
-        paths.sort_by_key(|dir| dir.path());
-
-        let mut files_ok = 0;
-        for path in paths {
-            let path = path.path();
-            let name = String::from(path.as_os_str().to_string_lossy());
-            match handle_module(&args, path, name) {
-                Ok(()) => files_ok +=1,
-                Err(message) => {
-                    terminal.fg(term::color::RED).unwrap();
-                    println!(" error");
-                    terminal.reset().unwrap();
-                    println!("{}", message)
-                }
-            };
-        }
-        terminal.fg(term::color::GREEN).unwrap();
-        println!("Test files coverage: {}/{} ({:.0}%)",
-                 files_ok,
-                 total_files,
-                 100.0 * (files_ok as f32) / (total_files as f32));
-        terminal.reset().unwrap();
-    }
     for filename in args.arg_file.iter() {
         let path = Path::new(&filename);
         let name = String::from(path.as_os_str().to_string_lossy());
@@ -121,9 +112,9 @@ fn main() {
             Ok(()) => {}
             Err(message) => {
                 terminal.fg(term::color::RED).unwrap();
-                println!(" error");
+                vprintln!(args.flag_verbose, " error");
                 terminal.reset().unwrap();
-                println!("{}", message)
+                vprintln!(args.flag_verbose, "{}", message)
             }
         }
     }
@@ -132,14 +123,14 @@ fn main() {
 fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String> {
     let mut terminal = term::stdout().unwrap();
     terminal.fg(term::color::YELLOW).unwrap();
-    print!("Translating: ");
+    vprint!(args.flag_verbose, "Handling: ");
     terminal.reset().unwrap();
-    print!("\"{}\"", name);
+    vprintln!(args.flag_verbose, "\"{}\"", name);
+    terminal.fg(term::color::MAGENTA).unwrap();
+    vprint!(args.flag_verbose, "Translating...");
+    terminal.reset().unwrap();
     let data = match path.extension() {
         None => {
-            terminal.fg(term::color::RED).unwrap();
-            println!(" error");
-            terminal.reset().unwrap();
             return Err(String::from("the file extension is not wasm or wast"));
         }
         Some(ext) => {
@@ -161,16 +152,11 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
                         .arg("-o")
                         .arg(file_path.to_str().unwrap())
                         .output()
-                        .or_else(|e| {
-                            terminal.fg(term::color::RED).unwrap();
-                            println!(" error");
-                            terminal.reset().unwrap();
-                            if let io::ErrorKind::NotFound = e.kind() {
-                                return Err(String::from("wast2wasm not found"));
-                            } else {
-                                return Err(String::from(e.description()));
-                            }
-                        })
+                        .or_else(|e| if let io::ErrorKind::NotFound = e.kind() {
+                                     return Err(String::from("wast2wasm not found"));
+                                 } else {
+                                     return Err(String::from(e.description()));
+                                 })
                         .unwrap();
                     match read_wasm_file(file_path) {
                         Ok(data) => data,
@@ -200,44 +186,104 @@ fn handle_module(args: &Args, path: PathBuf, name: String) -> Result<(), String>
             }
         }
     };
+    terminal.fg(term::color::GREEN).unwrap();
+    vprintln!(args.flag_verbose, " ok");
+    terminal.reset().unwrap();
     if args.flag_check {
+        terminal.fg(term::color::MAGENTA).unwrap();
+        vprint!(args.flag_verbose, "Checking...   ");
+        terminal.reset().unwrap();
         for func in translation.functions.iter() {
             let il = match func {
                 &FunctionTranslation::Import() => continue,
-                &FunctionTranslation::Code { ref il, .. } => il,
+                &FunctionTranslation::Code { ref il, .. } => il.clone(),
             };
-            match verifier::verify_function(il, None) {
+            match verifier::verify_function(&il, None) {
                 Ok(()) => (),
-                Err(err) => return Err(pretty_verifier_error(il, None, err)),
+                Err(err) => return Err(pretty_verifier_error(&il, None, err)),
             }
         }
+        terminal.fg(term::color::GREEN).unwrap();
+        vprintln!(args.flag_verbose, " ok");
+        terminal.reset().unwrap();
     }
-    if args.flag_verbose {
-        println!();
+    if args.flag_print {
         let mut writer1 = stdout();
         let mut writer2 = stdout();
         match pretty_print_translation(&name, &data, &translation, &mut writer1, &mut writer2) {
             Err(error) => return Err(String::from(error.description())),
-            Ok(()) => {
-                terminal.fg(term::color::GREEN).unwrap();
-                println!("ok");
-                terminal.reset().unwrap();
+            Ok(()) => (),
+        }
+    }
+    if args.flag_optimize {
+        terminal.fg(term::color::MAGENTA).unwrap();
+        vprint!(args.flag_verbose, "Optimizing... ");
+        terminal.reset().unwrap();
+        for func in translation.functions.iter() {
+            let mut il = match func {
+                &FunctionTranslation::Import() => continue,
+                &FunctionTranslation::Code { ref il, .. } => il.clone(),
+            };
+            let mut loop_analysis = LoopAnalysis::new();
+            let mut cfg = ControlFlowGraph::new();
+            cfg.compute(&il);
+            let mut domtree = DominatorTree::new();
+            domtree.compute(&mut il, &cfg);
+            loop_analysis.compute(&mut il, &mut cfg, &mut domtree);
+            let mut context = Context::new();
+            context.func = il;
+            context.cfg = cfg;
+            context.domtree = domtree;
+            context.loop_analysis = loop_analysis;
+            match verifier::verify_context(&context.func, &context.cfg, &context.domtree, None) {
+                Ok(()) => (),
+                Err(err) => {
+                    return Err(pretty_verifier_error(&context.func, None, err));
+                }
+            };
+            match context.licm() {
+                Ok(())=> (),
+                Err(error) => {
+                    match error {
+                        CtonError::Verifier(err) => {
+                            return Err(pretty_verifier_error(&context.func, None, err));
+                        }
+                        CtonError::ImplLimitExceeded |
+                        CtonError::CodeTooLarge => return Err(String::from(error.description())),
+                    }
+                }
+            };
+            match verifier::verify_context(&context.func, &context.cfg, &context.domtree, None) {
+                Ok(()) => (),
+                Err(err) => return Err(pretty_verifier_error(&context.func, None, err)),
             }
         }
-    } else {
         terminal.fg(term::color::GREEN).unwrap();
-        println!(" ok");
+        vprintln!(args.flag_verbose, " ok");
         terminal.reset().unwrap();
     }
     if args.flag_execute {
-        terminal.fg(term::color::YELLOW).unwrap();
-        println!("Compiling and executing module...");
+        terminal.fg(term::color::MAGENTA).unwrap();
+        vprint!(args.flag_verbose, "Compiling...   ");
         terminal.reset().unwrap();
-        match execute_module(&translation) {
-            Ok(()) => {
+        match compile_module(&translation) {
+            Ok(exec) => {
                 terminal.fg(term::color::GREEN).unwrap();
-                println!("ok");
+                vprintln!(args.flag_verbose, "ok");
                 terminal.reset().unwrap();
+                terminal.fg(term::color::MAGENTA).unwrap();
+                vprint!(args.flag_verbose, "Executing...   ");
+                terminal.reset().unwrap();
+                match execute(exec) {
+                    Ok(()) => {
+                        terminal.fg(term::color::GREEN).unwrap();
+                        vprintln!(args.flag_verbose, "ok");
+                        terminal.reset().unwrap();
+                    }
+                    Err(s) => {
+                        return Err(s);
+                    }
+                }
             }
             Err(s) => {
                 return Err(s);
@@ -388,7 +434,7 @@ pub fn pretty_verifier_error(func: &ir::Function,
                     inst,
                     func.dfg.display_inst(inst, isa))
         }
-        _ => String::from("\n"),
+        _ => String::from(format!("{}\n", msg)),
     };
     format!("{}{}", str1, func.display(isa))
 }

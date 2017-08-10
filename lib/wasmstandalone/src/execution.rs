@@ -8,7 +8,7 @@ use cretonne::result::CtonError;
 use cretonne::ir::entities::AnyEntity;
 use cretonne::ir::{self, Ebb, FuncRef, JumpTable, Function};
 use cretonne::binemit::{RelocSink, Reloc, CodeOffset};
-use wasm2cretonne::{TranslationResult, FunctionTranslation, ImportMappings};
+use wasm2cretonne::{TranslationResult, FunctionTranslation, ImportMappings, FunctionIndex};
 use std::mem::transmute;
 use region::Protection;
 use region::protect;
@@ -57,8 +57,14 @@ impl StandaloneRelocSink {
     }
 }
 
+/// Structure containing the compiled code of the functions, ready to be executed.
+pub struct ExecutableCode {
+    functions_code: Vec<Vec<u8>>,
+    start_index: FunctionIndex,
+}
+
 /// Executes a module that has been translated with the `StandaloneRuntime` runtime implementation.
-pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
+pub fn compile_module(trans_result: &TranslationResult) -> Result<ExecutableCode, String> {
     let mut shared_builder = settings::builder();
     shared_builder
         .enable("enable_verifier")
@@ -122,12 +128,18 @@ pub fn execute_module(trans_result: &TranslationResult) -> Result<(), String> {
     // After having emmitted the code to memory, we deal with relocations
     match trans_result.start_index {
         None => Err(String::from("No start function defined, aborting execution")),
-        Some(index) => execute(&mut functions_code[index]),
+        Some(index) => {
+            Ok(ExecutableCode {
+                   functions_code,
+                   start_index: index,
+               })
+        }
     }
 }
 
 // Jumps to the code region of memory and execute the start function of the module.
-fn execute(code_buf: &mut Vec<u8>) -> Result<(), String> {
+pub fn execute(exec: ExecutableCode) -> Result<(), String> {
+    let code_buf = &exec.functions_code[exec.start_index];
     unsafe {
         match protect(code_buf.as_ptr(),
                       code_buf.len(),

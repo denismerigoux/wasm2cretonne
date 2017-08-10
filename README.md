@@ -15,7 +15,7 @@ Use the functions defined in the crates `wasm2cretonne` and `wasmruntime`.
 
 ```rust
 use wasm2cretonne::translate_module;
-use wasmruntime::{StandaloneRuntime, execute_module};
+use wasmruntime::{StandaloneRuntime, compile_module, execute};
 use std::path::{Path, PathBuf};
 
 fn read_wasm_file(path: PathBuf) -> Result<Vec<u8>, io::Error> {
@@ -40,7 +40,8 @@ let translation = match translate_module(&data, &mut runtime) {
         panic!(string);
     }
 };
-execute_module(&translation, "intel");
+let exec = compile_module(&translation, "intel");
+execute(exec);
 println!("Memory after execution: {:?}", runtime.inspect_memory(0,0,4));
 ```
 
@@ -49,8 +50,11 @@ println!("Memory after execution: {:?}", runtime.inspect_memory(0,0,4));
 The binary created by the root crate of this repo is an utility to parse, translate, compile and execute wasm binaries using Cretonne. Usage:
 
 ```
-wasm2cretonne-util file <files to translate>
-    -v, --verbose       displays the module and translated functions
+wasm2cretonne-util <files to translate>
+    -v, --verbose       displays info on the different steps
+    -p, --print         displays the module and translated functions
+    -c, --check         checks the corectness of the translated functions
+    -o, --optimize      runs optimization passes on the translated functions
     -e, --execute       enable the standalone runtime and executes the start function of the module
     -m, --memory        interactive memory inspector after execution
 ```

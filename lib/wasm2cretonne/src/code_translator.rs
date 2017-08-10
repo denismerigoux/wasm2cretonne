@@ -628,7 +628,7 @@ fn translate_operator(op: &Operator,
          ************************************************************************************/
         Operator::I32Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -637,7 +637,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I32Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -646,7 +646,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I32Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -655,7 +655,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I32Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -664,7 +664,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load8U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -673,7 +673,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load16U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -682,7 +682,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load8S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -691,7 +691,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load16S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -700,7 +700,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load32S { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -709,7 +709,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load32U { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -718,7 +718,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -727,7 +727,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::F32Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -736,7 +736,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::I64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -745,7 +745,7 @@ fn translate_operator(op: &Operator,
         }
         Operator::F64Load { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -763,7 +763,7 @@ fn translate_operator(op: &Operator,
         Operator::F64Store { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let val = stack.pop().unwrap();
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -774,7 +774,7 @@ fn translate_operator(op: &Operator,
         Operator::I64Store8 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let val = stack.pop().unwrap();
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -785,7 +785,7 @@ fn translate_operator(op: &Operator,
         Operator::I64Store16 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let val = stack.pop().unwrap();
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();
@@ -795,7 +795,7 @@ fn translate_operator(op: &Operator,
         Operator::I64Store32 { memory_immediate: MemoryImmediate { flags: _, offset } } => {
             let val = stack.pop().unwrap();
             let address_i32 = stack.pop().unwrap();
-            let base = runtime.translate_memory_base_adress(builder, 0);
+            let base = runtime.translate_memory_base_address(builder, 0);
             let address_i64 = builder.ins().uextend(I64, address_i32);
             let addr = builder.ins().iadd(base, address_i64);
             let memflags = MemFlags::new();

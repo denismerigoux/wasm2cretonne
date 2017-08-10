@@ -30,7 +30,11 @@ impl WasmRuntime for DummyRuntime {
             I32 => builder.ins().iconst(glob.ty, -1),
             I64 => builder.ins().iconst(glob.ty, -1),
             F32 => builder.ins().f32const(Ieee32::with_bits(0xbf800000)), // -1.0
-            F64 => builder.ins().f64const(Ieee64::with_bits(0xbff0000000000000)), // -1.0
+            F64 => {
+                builder
+                    .ins()
+                    .f64const(Ieee64::with_bits(0xbff0000000000000))
+            } // -1.0
             _ => panic!("should not happen"),
         }
     }
@@ -53,10 +57,10 @@ impl WasmRuntime for DummyRuntime {
         let call_inst = builder.ins().call_indirect(sig_ref, index_val, call_args);
         builder.inst_results(call_inst)
     }
-    fn translate_memory_base_adress(&self,
-                                    builder: &mut FunctionBuilder<Local>,
-                                    _: MemoryIndex)
-                                    -> Value {
+    fn translate_memory_base_address(&self,
+                                     builder: &mut FunctionBuilder<Local>,
+                                     _: MemoryIndex)
+                                     -> Value {
         builder.ins().iconst(I64, 0)
     }
     fn declare_global(&mut self, global: Global) {

@@ -96,10 +96,10 @@ impl WasmRuntime for StandaloneRuntime {
         let addr_val = builder.ins().iconst(I64, addr);
         builder.ins().store(memflags, val, addr_val, memoffset);
     }
-    fn translate_memory_base_adress(&self,
-                                    builder: &mut FunctionBuilder<Local>,
-                                    memory_index: MemoryIndex)
-                                    -> Value {
+    fn translate_memory_base_address(&self,
+                                     builder: &mut FunctionBuilder<Local>,
+                                     memory_index: MemoryIndex)
+                                     -> Value {
         let addr: i64 = unsafe { transmute(self.memories[memory_index].data.as_ptr()) };
         builder.ins().iconst(I64, addr)
     }

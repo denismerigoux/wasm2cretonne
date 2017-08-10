@@ -11,5 +11,5 @@ extern crate region;
 mod execution;
 mod standalone;
 
-pub use execution::execute_module;
+pub use execution::{compile_module, execute, ExecutableCode};
 pub use standalone::StandaloneRuntime;
