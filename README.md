@@ -60,7 +60,3 @@ wasm2cretonne-util <files to translate>
 ```
 
 The tool reads `.wasm` files but also `.wast` as long as the [WebAssembly binary toolkit](https://github.com/WebAssembly/wabt)'s `wast2wasm` executable is accessible in your `PATH`. For now, only the 64 bits Intel architecture is supported for execution.  
-
-### Example
-
-![Screenshot](screenshot.png)

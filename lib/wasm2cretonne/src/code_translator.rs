@@ -30,7 +30,7 @@ use cton_frontend::{ILBuilder, FunctionBuilder};
 use wasmparser::{Parser, ParserState, Operator, WasmDecoder, MemoryImmediate};
 use translation_utils::{f32_translation, f64_translation, type_to_type, translate_type, Local,
                         GlobalIndex, FunctionIndex, SignatureIndex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use runtime::WasmRuntime;
 use std::u32;
 
@@ -52,17 +52,20 @@ enum ControlStackFrame {
         branch_inst: Inst,
         return_values: Vec<Type>,
         original_stack_size: usize,
+        reachable: bool,
     },
     Block {
         destination: Ebb,
         return_values: Vec<Type>,
         original_stack_size: usize,
+        reachable: bool,
     },
     Loop {
         destination: Ebb,
         header: Ebb,
         return_values: Vec<Type>,
         original_stack_size: usize,
+        reachable: bool,
     },
 }
 
@@ -103,6 +106,22 @@ impl ControlStackFrame {
             &ControlStackFrame::Loop { .. } => true,
         }
     }
+
+    fn is_reachable(&self) -> bool {
+        match self {
+            &ControlStackFrame::If { reachable, .. } |
+            &ControlStackFrame::Block { reachable, .. } |
+            &ControlStackFrame::Loop { reachable, .. } => reachable,
+        }
+    }
+
+    fn set_reachable(&mut self) {
+        match self {
+            &mut ControlStackFrame::If { ref mut reachable, .. } |
+            &mut ControlStackFrame::Block { ref mut reachable, .. } |
+            &mut ControlStackFrame::Loop { ref mut reachable, .. } => *reachable = true,
+        }
+    }
 }
 
 /// Contains information passed along during the translation and that records:
@@ -116,7 +135,6 @@ struct TranslationState {
     last_inst_return: bool,
     phantom_unreachable_stack_depth: usize,
     real_unreachable_stack_depth: usize,
-    reachable_ebbs: HashSet<Ebb>,
 }
 
 /// Holds mappings between the function and signatures indexes in the Wasm module and their
@@ -203,7 +221,6 @@ pub fn translate_function_body(parser: &mut Parser,
             last_inst_return: false,
             phantom_unreachable_stack_depth: 0,
             real_unreachable_stack_depth: 0,
-            reachable_ebbs: HashSet::new(),
         };
         // We initialize the control stack with the implicit function block
         let end_ebb = builder.create_ebb();
@@ -214,6 +231,7 @@ pub fn translate_function_body(parser: &mut Parser,
                                    .iter()
                                    .map(|argty| argty.value_type)
                                    .collect(),
+                               reachable: false,
                            });
         // Now the main loop that reads every wasm instruction and translates it
         loop {
@@ -352,6 +370,7 @@ fn translate_operator(op: &Operator,
                                    destination: next,
                                    return_values: translate_type(ty).unwrap(),
                                    original_stack_size: stack.len(),
+                                   reachable: false,
                                });
         }
         Operator::Loop { ty } => {
@@ -369,6 +388,7 @@ fn translate_operator(op: &Operator,
                                    header: loop_body,
                                    return_values: translate_type(ty).unwrap(),
                                    original_stack_size: stack.len(),
+                                   reachable: false,
                                });
             builder.switch_to_block(loop_body, &[]);
         }
@@ -393,6 +413,7 @@ fn translate_operator(op: &Operator,
                                    branch_inst: jump_inst,
                                    return_values: translate_type(ty).unwrap(),
                                    original_stack_size: stack.len(),
+                                   reachable: false,
                                });
         }
         Operator::Else => {
@@ -459,7 +480,8 @@ fn translate_operator(op: &Operator,
          * `br_table`.
          ***********************************************************************************/
         Operator::Br { relative_depth } => {
-            let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
+            let i = control_stack.len() - 1 - (relative_depth as usize);
+            let frame = &mut control_stack[i];
             let jump_args = if frame.is_loop() {
                 Vec::new()
             } else {
@@ -470,12 +492,13 @@ fn translate_operator(op: &Operator,
                 .ins()
                 .jump(frame.br_destination(), jump_args.as_slice());
             // We signal that all the code that follows until the next End is unreachable
-            state.reachable_ebbs.insert(frame.br_destination());
+            frame.set_reachable();
             state.real_unreachable_stack_depth = 1 + relative_depth as usize;
         }
         Operator::BrIf { relative_depth } => {
             let val = stack.pop().unwrap();
-            let frame = &control_stack[control_stack.len() - 1 - (relative_depth as usize)];
+            let i = control_stack.len() - 1 - (relative_depth as usize);
+            let frame = &mut control_stack[i];
             let cut_index = stack.len() - frame.return_values().len();
             let jump_args = stack.split_off(cut_index);
             builder
@@ -483,7 +506,7 @@ fn translate_operator(op: &Operator,
                 .brnz(val, frame.br_destination(), jump_args.as_slice());
             // The values returned by the branch are still available for the reachable
             // code that comes after it
-            state.reachable_ebbs.insert(frame.br_destination());
+            frame.set_reachable();
             stack.extend(jump_args);
         }
         Operator::BrTable { ref table } => {
@@ -503,18 +526,20 @@ fn translate_operator(op: &Operator,
                 if depths.len() > 0 {
                     let jt = builder.create_jump_table();
                     for (index, depth) in depths.iter().enumerate() {
-                        let ebb = control_stack[control_stack.len() - 1 - (*depth as usize)]
-                            .br_destination();
+                        let i = control_stack.len() - 1 - (*depth as usize);
+                        let frame = &mut control_stack[i];
+                        let ebb = frame.br_destination();
                         builder.insert_jump_table_entry(jt, index, ebb);
-                        state.reachable_ebbs.insert(ebb);
+                        frame.set_reachable();
                     }
                     builder.ins().br_table(val, jt);
                 }
-                let ebb = control_stack[control_stack.len() - 1 - (default as usize)]
-                    .br_destination();
+                let i = control_stack.len() - 1 - (default as usize);
+                let frame = &mut control_stack[i];
+                let ebb = frame.br_destination();
                 builder.ins().jump(ebb, &[]);
                 state.real_unreachable_stack_depth = 1 + min_depth as usize;
-                state.reachable_ebbs.insert(ebb);
+                frame.set_reachable();
             } else {
                 // Here we have jump arguments, but Cretonne's br_table doesn't support them
                 // We then proceed to split the edges going out of the br_table
@@ -545,11 +570,11 @@ fn translate_operator(op: &Operator,
                     for (depth, dest_ebb) in dest_ebbs {
                         builder.switch_to_block(dest_ebb, &[]);
                         builder.seal_block(dest_ebb);
-                        let real_dest_ebb = control_stack[control_stack.len() - 1 -
-                        (depth as usize)]
-                                .br_destination();
+                        let i = control_stack.len() - 1 - (depth as usize);
+                        let frame = &mut control_stack[i];
+                        let real_dest_ebb = frame.br_destination();
                         builder.ins().jump(real_dest_ebb, jump_args.as_slice());
-                        state.reachable_ebbs.insert(dest_ebb);
+                        frame.set_reachable();
                     }
                     state.real_unreachable_stack_depth = 1 + min_depth as usize;
                 } else {
@@ -1219,7 +1244,7 @@ fn translate_unreachable_operator(op: &Operator,
                     }
                     _ => {}
                 }
-                if state.reachable_ebbs.contains(&frame.following_code()) {
+                if frame.is_reachable() {
                     state.real_unreachable_stack_depth = 1;
                 }
                 // Now we have to split off the stack the values not used

@@ -112,7 +112,7 @@ fn main() {
             Ok(()) => {}
             Err(message) => {
                 terminal.fg(term::color::RED).unwrap();
-                vprintln!(args.flag_verbose, " error");
+                vprintln!(args.flag_verbose, "error");
                 terminal.reset().unwrap();
                 vprintln!(args.flag_verbose, "{}", message)
             }
