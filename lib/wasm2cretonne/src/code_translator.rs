@@ -499,8 +499,12 @@ fn translate_operator(op: &Operator,
             let val = stack.pop().unwrap();
             let i = control_stack.len() - 1 - (relative_depth as usize);
             let frame = &mut control_stack[i];
-            let cut_index = stack.len() - frame.return_values().len();
-            let jump_args = stack.split_off(cut_index);
+            let jump_args = if frame.is_loop() {
+                Vec::new()
+            } else {
+                let cut_index = stack.len() - frame.return_values().len();
+                stack.split_off(cut_index)
+            };
             builder
                 .ins()
                 .brnz(val, frame.br_destination(), jump_args.as_slice());
