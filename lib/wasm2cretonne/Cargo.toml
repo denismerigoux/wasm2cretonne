@@ -6,5 +6,7 @@ publish = false
 
 [dependencies]
 wasmparser = "0.6.1"
-cretonne = { git = "https://github.com/stoklund/cretonne.git" }
-cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
+cretonne = { path = "../../../cretonne/lib/cretonne" }
+cretonne-frontend = { path = "../../../cretonne/lib/frontend" }
+# cretonne = { git = "https://github.com/stoklund/cretonne.git" }
+# cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }

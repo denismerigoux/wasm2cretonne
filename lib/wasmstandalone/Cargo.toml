@@ -5,7 +5,9 @@ authors = ["The Cretonne Project Developers"]
 publish = false
 
 [dependencies]
-cretonne = { git = "https://github.com/stoklund/cretonne.git" }
-cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
+cretonne = { path = "../../../cretonne/lib/cretonne" }
+cretonne-frontend = { path = "../../../cretonne/lib/frontend" }
+# cretonne = { git = "https://github.com/stoklund/cretonne.git" }
+# cretonne-frontend = { git = "https://github.com/stoklund/cretonne.git" }
 wasm2cretonne = { path = "../wasm2cretonne" }
 region = "0.0.8"

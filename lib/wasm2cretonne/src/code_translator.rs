@@ -521,9 +521,15 @@ fn translate_operator(op: &Operator,
                     min_depth = *depth;
                 }
             }
-            let jump_args_count = control_stack[control_stack.len() - 1 - (min_depth as usize)]
-                .return_values()
-                .len();
+            let jump_args_count = {
+                let i = control_stack.len() - 1 - (min_depth as usize);
+                let min_depth_frame = &control_stack[i];
+                if min_depth_frame.is_loop() {
+                    0
+                } else {
+                    min_depth_frame.return_values().len()
+                }
+            };
             if jump_args_count == 0 {
                 // No jump arguments
                 let val = stack.pop().unwrap();
